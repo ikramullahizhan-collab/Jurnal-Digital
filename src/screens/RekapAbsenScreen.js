@@ -79,12 +79,12 @@ export default function RekapAbsenScreen() {
     fetchFormData();
   }, []);
 
+  const isFilterReady = activeTab === 'BULAN' 
+    ? Boolean(idKelas && bulan && selectedMapel) 
+    : Boolean(idKelas && semester && selectedMapel);
+
   // Filter sekarang mewajibkan idKelas, bulan/semester, DAN selectedMapel
   useEffect(() => {
-    const isFilterReady = activeTab === 'BULAN' 
-      ? Boolean(idKelas && bulan && selectedMapel) 
-      : Boolean(idKelas && semester && selectedMapel);
-      
     if (isFilterReady) {
       fetchDataAbsen();
     } else {
@@ -206,10 +206,6 @@ export default function RekapAbsenScreen() {
   };
 
   const onRefresh = () => {
-    const isFilterReady = activeTab === 'BULAN' 
-      ? Boolean(idKelas && bulan && selectedMapel) 
-      : Boolean(idKelas && semester && selectedMapel);
-      
     if (isFilterReady) {
       setRefreshing(true);
       fetchDataAbsen();
@@ -218,11 +214,15 @@ export default function RekapAbsenScreen() {
     }
   };
 
+  // Fungsi untuk tombol refresh global (sejajar dengan tombol cetak)
+  const handleRefreshAll = () => {
+    fetchFormData();
+    if (isFilterReady) {
+      fetchDataAbsen();
+    }
+  };
+
   const handleCetak = () => {
-    const isFilterReady = activeTab === 'BULAN' 
-      ? Boolean(idKelas && bulan && selectedMapel) 
-      : Boolean(idKelas && semester && selectedMapel);
-      
     if (!isFilterReady) {
       Alert.alert('Peringatan', 'Silakan lengkapi pilihan kelas, bulan/semester, dan mapel terlebih dahulu.');
       return;
@@ -611,10 +611,6 @@ export default function RekapAbsenScreen() {
     </Modal>
   );
 
-  const isFilterReady = activeTab === 'BULAN' 
-    ? Boolean(idKelas && bulan && selectedMapel) 
-    : Boolean(idKelas && semester && selectedMapel);
-
   return (
     <View style={styles.container}>
       {/* Tab Navigation */}
@@ -678,7 +674,7 @@ export default function RekapAbsenScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* Row 2: Filter Mapel */}
+        {/* Row 2: Filter Mapel & Tombol Refresh */}
         <View style={[styles.rowFilter, { marginBottom: 0 }]}>
           <View style={[styles.pickerContainer, { marginHorizontal: 3 }]}>
             <TouchableOpacity
@@ -692,6 +688,7 @@ export default function RekapAbsenScreen() {
               <Ionicons name="chevron-down" size={16} color="#64748B" />
             </TouchableOpacity>
           </View>
+
           {selectedMapel && !loadingMapel ? (
             <TouchableOpacity 
               style={{ padding: 8, marginRight: 2 }} 
@@ -700,6 +697,19 @@ export default function RekapAbsenScreen() {
               <Ionicons name="close-circle" size={20} color="#EF4444" />
             </TouchableOpacity>
           ) : null}
+
+          {/* TOMBOL REFRESH BARU (Sejajar dengan tombol Cetak di atasnya) */}
+          <TouchableOpacity 
+            style={styles.refreshButton} 
+            onPress={handleRefreshAll}
+            disabled={loadingKelas || loadingMapel || loading}
+          >
+            {(loadingKelas || loadingMapel || loading) ? (
+              <ActivityIndicator size="small" color="#FFF" />
+            ) : (
+              <Ionicons name="refresh" size={20} color="#FFF" />
+            )}
+          </TouchableOpacity>
         </View>
       </View>
 
@@ -890,6 +900,10 @@ const styles = StyleSheet.create({
   selectText: { fontSize: 13, color: '#334155', fontWeight: '500', flex: 1, marginRight: 4 },
   placeholderText: { color: '#94A3B8' },
   printButton: { alignItems: 'center', justifyContent: 'center', backgroundColor: '#10B981', height: 40, width: 40, borderRadius: 8, marginLeft: 3 },
+  
+  /* Style Tambahan untuk Tombol Refresh */
+  refreshButton: { alignItems: 'center', justifyContent: 'center', backgroundColor: '#3B82F6', height: 40, width: 40, borderRadius: 8, marginLeft: 3 },
+  
   tableWrapper: { flex: 1, marginHorizontal: 12, marginBottom: 12, backgroundColor: '#FFF', borderRadius: 8, borderWidth: 1, borderColor: '#E2E8F0', overflow: 'hidden' },
   listContainer: { flexGrow: 1, paddingBottom: 50 },
   tableHeader: { flexDirection: 'row', backgroundColor: '#F8FAFC', borderBottomWidth: 2, borderBottomColor: '#CBD5E1', paddingVertical: 10, paddingHorizontal: 8, alignItems: 'center' },
