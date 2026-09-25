@@ -1,12 +1,23 @@
 import React, { useContext, useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, ScrollView, Alert, Image, Modal, ActivityIndicator } from 'react-native';
+import { 
+  View, 
+  Text, 
+  TouchableOpacity, 
+  StyleSheet, 
+  ScrollView, 
+  Alert, 
+  Image, 
+  Modal, 
+  ActivityIndicator,
+  Platform 
+} from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import { AuthContext } from '../context/AuthContext';
 import { getUserMenus } from '../config/menuConfig';
-import { callBackendAPI } from '../api/client'; // SESUAIKAN PATH INI DENGAN LOKASI FILE client.js ANDA
+import { callBackendAPI } from '../api/client';
 
 const getImageUrl = (url) => {
   if (!url || typeof url !== 'string' || url.trim() === '') return null;
@@ -46,22 +57,46 @@ export default function DashboardScreen({ navigation }) {
       return;
     }
 
+    // Aktifkan base64: true agar ImagePicker langsung mengembalikan Base64 di Native maupun Web
     const pickerResult = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ['images'],
       allowsEditing: true,
       aspect: [2, 3],
       quality: 0.5,
+      base64: true,
     });
 
-    if (pickerResult.canceled) return;
+    if (pickerResult.canceled || !pickerResult.assets || pickerResult.assets.length === 0) return;
 
-    const uri = pickerResult.assets[0].uri;
+    const asset = pickerResult.assets[0];
+    const uri = asset.uri;
     setIsUploading(true);
 
     try {
-      const base64Image = await FileSystem.readAsStringAsync(uri, {
-        encoding: FileSystem.EncodingType.Base64,
-      });
+      let base64Image = asset.base64;
+
+      // Fallback jika base64 tidak didapatkan langsung dari ImagePicker
+      if (!base64Image) {
+        if (Platform.OS === 'web') {
+          // Konversi Blob URL ke Base64 untuk PWA/Web
+          const response = await fetch(uri);
+          const blob = await response.blob();
+          base64Image = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onloadend = () => {
+              const resStr = reader.result || '';
+              resolve(resStr.includes(',') ? resStr.split(',')[1] : resStr);
+            };
+            reader.onerror = reject;
+            reader.readAsDataURL(blob);
+          });
+        } else {
+          // Konversi file URI ke Base64 untuk Native (Android / iOS)
+          base64Image = await FileSystem.readAsStringAsync(uri, {
+            encoding: FileSystem.EncodingType.Base64,
+          });
+        }
+      }
 
       // Siapkan payload
       const payloadData = {
@@ -71,15 +106,17 @@ export default function DashboardScreen({ navigation }) {
         filename: `PROFIL_${user?.nip}.jpg`
       };
 
-      // Gunakan fungsi callBackendAPI dari client.js
+      // Panggil API Backend
       const result = await callBackendAPI('uploadFotoProfil', payloadData);
 
-      if (result.success) {
+      if (result && (result.success || result.status === 'success')) {
         Alert.alert('Berhasil', 'Foto profil berhasil diperbarui.');
-        setLocalPhotoUri(getImageUrl(result.url)); 
+        const updatedUrl = getImageUrl(result.url || result.data?.url);
+        setLocalPhotoUri(updatedUrl); 
+        setHasImageError(false);
         setIsPhotoModalVisible(false);
       } else {
-        Alert.alert('Gagal', result.message || 'Terjadi kesalahan saat mengunggah foto.');
+        Alert.alert('Gagal', result?.message || 'Terjadi kesalahan saat mengunggah foto.');
       }
 
     } catch (error) {
