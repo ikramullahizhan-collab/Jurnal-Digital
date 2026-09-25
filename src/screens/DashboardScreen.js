@@ -1,9 +1,12 @@
 import React, { useContext, useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, ScrollView, Alert, Image, Modal } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, ScrollView, Alert, Image, Modal, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import * as ImagePicker from 'expo-image-picker';
+import * as FileSystem from 'expo-file-system/legacy';
 import { AuthContext } from '../context/AuthContext';
 import { getUserMenus } from '../config/menuConfig';
+import { callBackendAPI } from '../api/client'; // SESUAIKAN PATH INI DENGAN LOKASI FILE client.js ANDA
 
 const getImageUrl = (url) => {
   if (!url || typeof url !== 'string' || url.trim() === '') return null;
@@ -13,10 +16,13 @@ const getImageUrl = (url) => {
 };
 
 export default function DashboardScreen({ navigation }) {
-  const { user } = useContext(AuthContext);
+  const { user, login } = useContext(AuthContext); 
   const insets = useSafeAreaInsets();
   const [hasImageError, setHasImageError] = useState(false);
-  const [isPhotoModalVisible, setIsPhotoModalVisible] = useState(false); // State untuk Modal
+  const [isPhotoModalVisible, setIsPhotoModalVisible] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+  
+  const [localPhotoUri, setLocalPhotoUri] = useState(getImageUrl(user?.foto));
 
   const role = user?.role || 'Guru';
   const isWaliKelas = user?.isWaliKelas || false;
@@ -24,7 +30,6 @@ export default function DashboardScreen({ navigation }) {
   
   const allRoleMenus = getUserMenus(role, isWaliKelas);
   const gridMenus = allRoleMenus.filter((m) => m.id !== 'home');
-  const photoUri = getImageUrl(user?.foto);
 
   const handleMenuPress = (menu) => {
     try {
@@ -34,11 +39,55 @@ export default function DashboardScreen({ navigation }) {
     }
   };
 
-  const handleUploadFoto = () => {
-    // Tutup modal terlebih dahulu (opsional)
-    setIsPhotoModalVisible(false);
-    // Tambahkan logika pemilihan file & upload ke server di sini
-    Alert.alert('Informasi', 'Fitur upload foto sedang dalam pengembangan.');
+  const handleUploadFoto = async () => {
+    const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (permissionResult.granted === false) {
+      Alert.alert('Izin Ditolak', 'Aplikasi membutuhkan akses ke galeri foto Anda.');
+      return;
+    }
+
+    const pickerResult = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsEditing: true,
+      aspect: [2, 3],
+      quality: 0.5,
+    });
+
+    if (pickerResult.canceled) return;
+
+    const uri = pickerResult.assets[0].uri;
+    setIsUploading(true);
+
+    try {
+      const base64Image = await FileSystem.readAsStringAsync(uri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+
+      // Siapkan payload
+      const payloadData = {
+        nip: user?.nip, 
+        base64: base64Image,
+        mimeType: 'image/jpeg',
+        filename: `PROFIL_${user?.nip}.jpg`
+      };
+
+      // Gunakan fungsi callBackendAPI dari client.js
+      const result = await callBackendAPI('uploadFotoProfil', payloadData);
+
+      if (result.success) {
+        Alert.alert('Berhasil', 'Foto profil berhasil diperbarui.');
+        setLocalPhotoUri(getImageUrl(result.url)); 
+        setIsPhotoModalVisible(false);
+      } else {
+        Alert.alert('Gagal', result.message || 'Terjadi kesalahan saat mengunggah foto.');
+      }
+
+    } catch (error) {
+      Alert.alert('Error', 'Gagal mengunggah foto. Pastikan koneksi internet stabil.');
+      console.error("Upload error:", error);
+    } finally {
+      setIsUploading(false);
+    }
   };
 
   return (
@@ -56,15 +105,14 @@ export default function DashboardScreen({ navigation }) {
               )}
             </View>
 
-            {/* Avatar Border sekarang bisa ditekan */}
             <TouchableOpacity 
               style={styles.avatarBorder} 
               onPress={() => setIsPhotoModalVisible(true)}
               activeOpacity={0.7}
             >
-              {photoUri && !hasImageError ? (
+              {localPhotoUri && !hasImageError ? (
                 <Image 
-                  source={{ uri: photoUri }} 
+                  source={{ uri: localPhotoUri }} 
                   style={styles.avatarImage} 
                   resizeMode="cover"
                   onError={() => setHasImageError(true)}
@@ -113,9 +161,9 @@ export default function DashboardScreen({ navigation }) {
             <Text style={styles.modalTitle}>Preview Foto Profil</Text>
             
             <View style={styles.modalImageContainer}>
-              {photoUri && !hasImageError ? (
+              {localPhotoUri && !hasImageError ? (
                 <Image 
-                  source={{ uri: photoUri }} 
+                  source={{ uri: localPhotoUri }} 
                   style={styles.modalImagePreview} 
                   resizeMode="cover"
                 />
@@ -124,12 +172,26 @@ export default function DashboardScreen({ navigation }) {
               )}
             </View>
 
-            <TouchableOpacity style={styles.uploadButton} onPress={handleUploadFoto}>
-              <Ionicons name="camera-outline" size={20} color="#FFF" style={{ marginRight: 8 }} />
-              <Text style={styles.uploadButtonText}>Upload Foto Baru</Text>
+            <TouchableOpacity 
+              style={[styles.uploadButton, isUploading && styles.uploadButtonDisabled]} 
+              onPress={handleUploadFoto}
+              disabled={isUploading}
+            >
+              {isUploading ? (
+                <ActivityIndicator color="#FFF" style={{ marginRight: 8 }} />
+              ) : (
+                <Ionicons name="camera-outline" size={20} color="#FFF" style={{ marginRight: 8 }} />
+              )}
+              <Text style={styles.uploadButtonText}>
+                {isUploading ? 'Mengunggah...' : 'Upload Foto Baru'}
+              </Text>
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.closeModalButton} onPress={() => setIsPhotoModalVisible(false)}>
+            <TouchableOpacity 
+              style={styles.closeModalButton} 
+              onPress={() => setIsPhotoModalVisible(false)}
+              disabled={isUploading}
+            >
               <Text style={styles.closeModalText}>Tutup</Text>
             </TouchableOpacity>
           </View>
@@ -205,8 +267,6 @@ const styles = StyleSheet.create({
     color: '#334155',
     textAlign: 'center',
   },
-
-  // Style Baru untuk Modal
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.5)',
@@ -233,7 +293,7 @@ const styles = StyleSheet.create({
   },
   modalImageContainer: {
     width: 140,
-    height: 210, // Proporsi 2:3 sama seperti avatar asli
+    height: 210, 
     backgroundColor: '#F1F5F9',
     borderRadius: 12,
     overflow: 'hidden',
@@ -256,6 +316,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 12,
+  },
+  uploadButtonDisabled: {
+    backgroundColor: '#94A3B8',
   },
   uploadButtonText: {
     color: '#FFF',
