@@ -14,29 +14,46 @@ import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { callBackendAPI } from '../api/client';
 
-const BULAN_OPTIONS = [
+// KONFIGURASI SEMESTER & BULAN
+const SEMESTER_OPTIONS = [
+  { label: 'Ganjil', value: 'Ganjil' },
+  { label: 'Genap', value: 'Genap' }
+];
+
+const BULAN_GANJIL = [
   { label: 'Semua Bulan', value: 'Semua' },
-  { label: 'Januari', value: '01' }, { label: 'Februari', value: '02' },
-  { label: 'Maret', value: '03' }, { label: 'April', value: '04' },
-  { label: 'Mei', value: '05' }, { label: 'Juni', value: '06' },
   { label: 'Juli', value: '07' }, { label: 'Agustus', value: '08' },
   { label: 'September', value: '09' }, { label: 'Oktober', value: '10' },
   { label: 'November', value: '11' }, { label: 'Desember', value: '12' },
 ];
 
-export default function PetaKerawananScreen() {
+const BULAN_GENAP = [
+  { label: 'Semua Bulan', value: 'Semua' },
+  { label: 'Januari', value: '01' }, { label: 'Februari', value: '02' },
+  { label: 'Maret', value: '03' }, { label: 'April', value: '04' },
+  { label: 'Mei', value: '05' }, { label: 'Juni', value: '06' },
+];
+
+export default function PetaKerawananScreen({ navigation }) {
   const [loadingKelas, setLoadingKelas] = useState(true);
   const [loadingTable, setLoadingTable] = useState(false);
   const [siswaKerawanan, setSiswaKerawanan] = useState([]);
   const [infoKelas, setInfoKelas] = useState({ namaKelas: '-', namaWali: '-', nipWali: '-' });
 
-  const [selectedBulan, setSelectedBulan] = useState(BULAN_OPTIONS[0]);
-  const [showBulanModal, setShowBulanModal] = useState(false);
-
+  // STATE KELAS
   const [selectedKelas, setSelectedKelas] = useState(null);
   const [showKelasModal, setShowKelasModal] = useState(false);
   const [kelasOptions, setKelasOptions] = useState([]);
 
+  // STATE SEMESTER & BULAN
+  const [selectedSemester, setSelectedSemester] = useState(SEMESTER_OPTIONS[0]); // Default Ganjil
+  const [showSemesterModal, setShowSemesterModal] = useState(false);
+  
+  const [bulanOptions, setBulanOptions] = useState(BULAN_GANJIL);
+  const [selectedBulan, setSelectedBulan] = useState(BULAN_GANJIL[0]);
+  const [showBulanModal, setShowBulanModal] = useState(false);
+
+  // STATE MODAL DETAIL
   const [detailModalVisible, setDetailModalVisible] = useState(false);
   const [selectedStudentDetail, setSelectedStudentDetail] = useState(null);
 
@@ -44,11 +61,23 @@ export default function PetaKerawananScreen() {
     fetchKelasOptions();
   }, []);
 
+  // Trigger Fetching Data saat filter berubah
   useEffect(() => {
     if (selectedKelas && selectedKelas.value) {
       fetchDataKerawanan();
     }
-  }, [selectedBulan, selectedKelas]);
+  }, [selectedBulan, selectedKelas, selectedSemester]);
+
+  // Handle Perubahan Semester
+  const handleSemesterChange = (semester) => {
+    setSelectedSemester(semester);
+    setShowSemesterModal(false);
+    
+    // Ganti daftar bulan berdasarkan semester
+    const newBulanOptions = semester.value === 'Ganjil' ? BULAN_GANJIL : BULAN_GENAP;
+    setBulanOptions(newBulanOptions);
+    setSelectedBulan(newBulanOptions[0]); // Reset ke "Semua Bulan"
+  };
 
   const fetchKelasOptions = async () => {
     setLoadingKelas(true);
@@ -84,6 +113,23 @@ export default function PetaKerawananScreen() {
     }
   };
 
+  // Pindahkan fungsi getKategoriKerawanan ke atas agar bisa diakses untuk sorting
+  const getKategoriKerawanan = (siswa) => {
+    const a = siswa.rekapA ?? 0;
+    const b = siswa.rekapB ?? 0;
+    const s = siswa.rekapS ?? 0;
+    const i = siswa.rekapI ?? 0;
+
+    // Menambahkan atribut "score" untuk keperluan pengurutan
+    if (a >= 3 || b >= 3 || (a + b) >= 4) {
+      return { label: 'Tinggi', bg: '#FEE2E2', text: '#DC2626', border: '#EF4444', score: 3 };
+    } else if (a > 0 || b > 0 || (s + i) >= 4) {
+      return { label: 'Sedang', bg: '#FEF3C7', text: '#D97706', border: '#F59E0B', score: 2 };
+    } else {
+      return { label: 'Rendah', bg: '#E0F2FE', text: '#0284C7', border: '#38BDF8', score: 1 };
+    }
+  };
+
   const fetchDataKerawanan = async () => {
     if (!selectedKelas) return;
 
@@ -96,7 +142,8 @@ export default function PetaKerawananScreen() {
         filterKelas: selectedKelas.value,
         kelas: selectedKelas.value,
         rombel: selectedKelas.value,
-        bulan: selectedBulan.value 
+        bulan: selectedBulan.value,
+        semester: selectedSemester.value
       };
 
       const response = await callBackendAPI('getPetaKerawananBK', payload).catch(() => null);
@@ -105,7 +152,6 @@ export default function PetaKerawananScreen() {
         const rawData = response.data || response || [];
 
         const processedData = Array.isArray(rawData) ? rawData.map(siswa => {
-          // LANGSUNG AMBIL DARI BACKEND, TIDAK PERLU DIHITUNG ULANG MANUAL
           const s = Number(siswa.S || siswa.sakit || 0);
           const i = Number(siswa.I || siswa.izin || 0);
           const a = Number(siswa.A || siswa.alpa || 0);
@@ -142,7 +188,14 @@ export default function PetaKerawananScreen() {
                  cleanTarget.includes(cleanKSiswa);
         });
 
-        setSiswaKerawanan(filteredData);
+        // Terapkan pengurutan (Sorting) berdasarkan skor kerawanan
+        const sortedData = filteredData.sort((siswaA, siswaB) => {
+          const skorA = getKategoriKerawanan(siswaA).score;
+          const skorB = getKategoriKerawanan(siswaB).score;
+          return skorB - skorA; // Urutan menurun: Tinggi(3) -> Sedang(2) -> Rendah(1)
+        });
+
+        setSiswaKerawanan(sortedData);
         setInfoKelas({
           namaKelas: selectedKelas.label,
           namaWali: userData?.namaLengkap || userData?.nama || '-',
@@ -158,27 +211,21 @@ export default function PetaKerawananScreen() {
     }
   };
 
-  const getKategoriKerawanan = (siswa) => {
-    const a = siswa.rekapA ?? 0;
-    const b = siswa.rekapB ?? 0;
-    const s = siswa.rekapS ?? 0;
-    const i = siswa.rekapI ?? 0;
-
-    if (a >= 3 || b >= 3 || (a + b) >= 4) {
-      return { label: 'Tinggi', bg: '#FEE2E2', text: '#DC2626', border: '#EF4444' };
-    } else if (a > 0 || b > 0 || (s + i) >= 4) {
-      return { label: 'Sedang', bg: '#FEF3C7', text: '#D97706', border: '#F59E0B' };
-    } else {
-      return { label: 'Rendah', bg: '#E0F2FE', text: '#0284C7', border: '#38BDF8' };
-    }
-  };
-
   const openDetail = (siswa) => {
     setSelectedStudentDetail(siswa);
     setDetailModalVisible(true);
   };
 
-  // RENDER DETAIL DISEDERHANAKAN KARENA BACKEND SUDAH MELABELI STATUS HARIAN
+  // Fungsi navigasi ke halaman Jurnal
+  const menujuJurnalBK = (siswa) => {
+    if (navigation) {
+      navigation.navigate('JurnalBK', {
+        prefillKelas: selectedKelas,
+        prefillSiswa: siswa
+      });
+    }
+  };
+
   const renderDetailGroups = () => {
     const details = selectedStudentDetail?.detail || [];
     if (details.length === 0) {
@@ -250,20 +297,30 @@ export default function PetaKerawananScreen() {
   return (
     <View style={styles.container}>
       <View style={styles.headerBox}>
-        <View style={styles.filterGroup}>
-          <TouchableOpacity style={styles.dropdownBtn} onPress={() => setShowKelasModal(true)} disabled={loadingKelas}>
-            <Ionicons name="school-outline" size={15} color="#2563EB" />
-            <Text style={styles.dropdownText} numberOfLines={1}>
-              {loadingKelas ? 'Memuat...' : (selectedKelas ? selectedKelas.label : 'Pilih Kelas')}
-            </Text>
-            <Ionicons name="chevron-down" size={15} color="#64748B" />
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.dropdownBtn} onPress={() => setShowBulanModal(true)}>
-            <Ionicons name="calendar-outline" size={15} color="#2563EB" />
-            <Text style={styles.dropdownText} numberOfLines={1}>{selectedBulan.label}</Text>
-            <Ionicons name="chevron-down" size={15} color="#64748B" />
-          </TouchableOpacity>
+        <View style={styles.scrollFilterContainer}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterGroup}>
+            <TouchableOpacity style={styles.dropdownBtn} onPress={() => setShowKelasModal(true)} disabled={loadingKelas}>
+              <Ionicons name="school-outline" size={15} color="#2563EB" />
+              <Text style={styles.dropdownText} numberOfLines={1}>
+                {loadingKelas ? 'Memuat...' : (selectedKelas ? selectedKelas.label : 'Pilih Kelas')}
+              </Text>
+              <Ionicons name="chevron-down" size={15} color="#64748B" />
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.dropdownBtn} onPress={() => setShowSemesterModal(true)}>
+              <Ionicons name="book-outline" size={15} color="#2563EB" />
+              <Text style={styles.dropdownText} numberOfLines={1}>{selectedSemester.label}</Text>
+              <Ionicons name="chevron-down" size={15} color="#64748B" />
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.dropdownBtn} onPress={() => setShowBulanModal(true)}>
+              <Ionicons name="calendar-outline" size={15} color="#2563EB" />
+              <Text style={styles.dropdownText} numberOfLines={1}>{selectedBulan.label}</Text>
+              <Ionicons name="chevron-down" size={15} color="#64748B" />
+            </TouchableOpacity>
+          </ScrollView>
         </View>
+
         <View style={styles.actionGroup}>
           <TouchableOpacity style={styles.iconBtn} onPress={fetchKelasOptions} disabled={loadingKelas}>
             {loadingKelas ? <ActivityIndicator size="small" color="#2563EB" /> : <Ionicons name="refresh" size={20} color="#2563EB" />}
@@ -311,8 +368,10 @@ export default function PetaKerawananScreen() {
             </View>
           ) : siswaKerawanan.length === 0 ? (
             <View style={styles.innerCenterBox}>
-              <Ionicons name="checkmark-circle-outline" size={44} color="#16A34A" />
-              <Text style={styles.emptyTitleText}>Semua Siswa Hadir Sempurna</Text>
+              <Ionicons name="calendar-outline" size={44} color="#94A3B8" />
+              <Text style={styles.emptyTitleText}>
+                Belum ada absen di semester yang dipilih ({selectedSemester.label})
+              </Text>
             </View>
           ) : (
             <ScrollView style={styles.tableScrollView}>
@@ -333,7 +392,17 @@ export default function PetaKerawananScreen() {
                     <Text style={[styles.tdCell, styles.colStat]}>{i}</Text>
                     <Text style={[styles.tdCell, styles.colStat, a > 0 && styles.textBoldRed]}>{a}</Text>
                     <Text style={[styles.tdCell, styles.colStat, b > 0 && styles.textBoldPurple]}>{b}</Text>
-                    <Text style={[styles.tdCell, styles.colProses, isProsesTindakLanjut && styles.textBoldGreen]}>{siswa.proses}</Text>
+                    
+                    {/* TOMBOL KOLOM PROSES */}
+                    <TouchableOpacity 
+                      style={[styles.tdCell, styles.colProses]} 
+                      onPress={() => menujuJurnalBK(siswa)}
+                    >
+                      <Text style={[isProsesTindakLanjut && styles.textBoldGreen, { fontSize: 10, textAlign: 'center' }]}>
+                        {siswa.proses}
+                      </Text>
+                    </TouchableOpacity>
+
                     <TouchableOpacity style={[styles.tdCell, styles.colAksi]} onPress={() => openDetail(siswa)} activeOpacity={0.7}>
                       <View style={[styles.miniBadge, { backgroundColor: kerawanan.bg, borderColor: kerawanan.border }]}>
                         <Text style={[styles.miniBadgeText, { color: kerawanan.text }]}>{kerawanan.label}</Text>
@@ -372,12 +441,34 @@ export default function PetaKerawananScreen() {
         </View>
       </Modal>
 
+      {/* Modal Semester */}
+      <Modal visible={showSemesterModal} transparent={true} animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalBulanContent}>
+            <Text style={styles.modalTitle}>Pilih Semester</Text>
+            <FlatList
+              data={SEMESTER_OPTIONS}
+              keyExtractor={(item) => item.value}
+              renderItem={({ item }) => (
+                <TouchableOpacity style={styles.bulanOption} onPress={() => handleSemesterChange(item)}>
+                  <Text style={[styles.bulanOptionText, selectedSemester.value === item.value && styles.bulanOptionActive]}>{item.label}</Text>
+                </TouchableOpacity>
+              )}
+            />
+            <TouchableOpacity style={styles.closeModalBtn} onPress={() => setShowSemesterModal(false)}>
+              <Text style={styles.closeModalText}>Batal</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Modal Bulan */}
       <Modal visible={showBulanModal} transparent={true} animationType="fade">
         <View style={styles.modalOverlay}>
           <View style={styles.modalBulanContent}>
             <Text style={styles.modalTitle}>Pilih Periode Bulan</Text>
             <FlatList
-              data={BULAN_OPTIONS}
+              data={bulanOptions}
               keyExtractor={(item) => item.value}
               renderItem={({ item }) => (
                 <TouchableOpacity style={styles.bulanOption} onPress={() => { setSelectedBulan(item); setShowBulanModal(false); }}>
@@ -392,6 +483,7 @@ export default function PetaKerawananScreen() {
         </View>
       </Modal>
 
+      {/* Modal Detail */}
       <Modal visible={detailModalVisible} transparent={true} animationType="slide">
         <View style={styles.modalOverlay}>
           <View style={styles.modalDetailContent}>
@@ -415,10 +507,11 @@ export default function PetaKerawananScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F8FAFC' },
   headerBox: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#FFF', padding: 12, borderBottomWidth: 1, borderBottomColor: '#E2E8F0' },
-  filterGroup: { flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 },
-  dropdownBtn: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F1F5F9', paddingHorizontal: 10, paddingVertical: 8, borderRadius: 8, gap: 4, flexShrink: 1 },
+  scrollFilterContainer: { flex: 1, marginRight: 10 },
+  filterGroup: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingRight: 10 },
+  dropdownBtn: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F1F5F9', paddingHorizontal: 10, paddingVertical: 8, borderRadius: 8, gap: 4 },
   dropdownText: { fontSize: 12, fontWeight: '600', color: '#334155' },
-  actionGroup: { flexDirection: 'row', alignItems: 'center', marginLeft: 8 },
+  actionGroup: { flexDirection: 'row', alignItems: 'center' },
   iconBtn: { padding: 8, backgroundColor: '#EFF6FF', borderRadius: 8, borderWidth: 1, borderColor: '#BFDBFE' },
   summaryBanner: { flexDirection: 'row', backgroundColor: '#FFF', paddingVertical: 12, paddingHorizontal: 16, borderBottomWidth: 1, borderBottomColor: '#E2E8F0', justifyContent: 'space-around', alignItems: 'center' },
   summaryItem: { alignItems: 'center' },

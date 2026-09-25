@@ -76,8 +76,9 @@ export default function DashboardScreen({ navigation }) {
                 style={styles.menuCard}
                 onPress={() => handleMenuPress(item)}
               >
-                <View style={styles.iconContainer}>
-                  <Ionicons name={item.icon || 'grid-outline'} size={24} color="#2563EB" />
+                {/* Latar dan ikon menggunakan warna dinamis dari config */}
+                <View style={[styles.iconContainer, { backgroundColor: item.bgColor || '#EFF6FF' }]}>
+                  <Ionicons name={item.icon || 'grid-outline'} size={24} color={item.color || '#2563EB'} />
                 </View>
                 <Text style={styles.menuTitle} numberOfLines={2}>
                   {item.title}
@@ -147,7 +148,6 @@ const styles = StyleSheet.create({
     width: 42,
     height: 42,
     borderRadius: 21,
-    backgroundColor: '#EFF6FF',
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 6,
