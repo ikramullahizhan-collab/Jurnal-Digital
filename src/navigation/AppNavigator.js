@@ -198,7 +198,7 @@ function MainTabNavigator() {
         component={JurnalBKScreen}
         options={{
           headerShown: true,
-          title: 'Input Jurnal BK',
+          title: 'Jurnal BK',
           headerTitleAlign: 'center',
         }}
       />

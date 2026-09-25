@@ -1,5 +1,5 @@
 import React, { useContext, useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, ScrollView, Alert, Image } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, ScrollView, Alert, Image, Modal } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AuthContext } from '../context/AuthContext';
@@ -16,6 +16,7 @@ export default function DashboardScreen({ navigation }) {
   const { user } = useContext(AuthContext);
   const insets = useSafeAreaInsets();
   const [hasImageError, setHasImageError] = useState(false);
+  const [isPhotoModalVisible, setIsPhotoModalVisible] = useState(false); // State untuk Modal
 
   const role = user?.role || 'Guru';
   const isWaliKelas = user?.isWaliKelas || false;
@@ -33,6 +34,13 @@ export default function DashboardScreen({ navigation }) {
     }
   };
 
+  const handleUploadFoto = () => {
+    // Tutup modal terlebih dahulu (opsional)
+    setIsPhotoModalVisible(false);
+    // Tambahkan logika pemilihan file & upload ke server di sini
+    Alert.alert('Informasi', 'Fitur upload foto sedang dalam pengembangan.');
+  };
+
   return (
     <View style={[styles.mainContainer, { paddingTop: insets.top }]}>
       <ScrollView contentContainerStyle={styles.scrollContent}>
@@ -48,7 +56,12 @@ export default function DashboardScreen({ navigation }) {
               )}
             </View>
 
-            <View style={styles.avatarBorder}>
+            {/* Avatar Border sekarang bisa ditekan */}
+            <TouchableOpacity 
+              style={styles.avatarBorder} 
+              onPress={() => setIsPhotoModalVisible(true)}
+              activeOpacity={0.7}
+            >
               {photoUri && !hasImageError ? (
                 <Image 
                   source={{ uri: photoUri }} 
@@ -59,7 +72,7 @@ export default function DashboardScreen({ navigation }) {
               ) : (
                 <Ionicons name="person" size={30} color="#E0E7FF" />
               )}
-            </View>
+            </TouchableOpacity>
           </View>
         </View>
 
@@ -76,7 +89,6 @@ export default function DashboardScreen({ navigation }) {
                 style={styles.menuCard}
                 onPress={() => handleMenuPress(item)}
               >
-                {/* Latar dan ikon menggunakan warna dinamis dari config */}
                 <View style={[styles.iconContainer, { backgroundColor: item.bgColor || '#EFF6FF' }]}>
                   <Ionicons name={item.icon || 'grid-outline'} size={24} color={item.color || '#2563EB'} />
                 </View>
@@ -88,6 +100,41 @@ export default function DashboardScreen({ navigation }) {
           </View>
         </View>
       </ScrollView>
+
+      {/* Modal Preview Foto */}
+      <Modal
+        visible={isPhotoModalVisible}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setIsPhotoModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Preview Foto Profil</Text>
+            
+            <View style={styles.modalImageContainer}>
+              {photoUri && !hasImageError ? (
+                <Image 
+                  source={{ uri: photoUri }} 
+                  style={styles.modalImagePreview} 
+                  resizeMode="cover"
+                />
+              ) : (
+                <Ionicons name="person" size={80} color="#94A3B8" />
+              )}
+            </View>
+
+            <TouchableOpacity style={styles.uploadButton} onPress={handleUploadFoto}>
+              <Ionicons name="camera-outline" size={20} color="#FFF" style={{ marginRight: 8 }} />
+              <Text style={styles.uploadButtonText}>Upload Foto Baru</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.closeModalButton} onPress={() => setIsPhotoModalVisible(false)}>
+              <Text style={styles.closeModalText}>Tutup</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -157,5 +204,73 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#334155',
     textAlign: 'center',
+  },
+
+  // Style Baru untuk Modal
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalContent: {
+    width: '80%',
+    backgroundColor: '#FFF',
+    borderRadius: 16,
+    padding: 24,
+    alignItems: 'center',
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+  },
+  modalTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#334155',
+    marginBottom: 20,
+  },
+  modalImageContainer: {
+    width: 140,
+    height: 210, // Proporsi 2:3 sama seperti avatar asli
+    backgroundColor: '#F1F5F9',
+    borderRadius: 12,
+    overflow: 'hidden',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 24,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  modalImagePreview: {
+    width: '100%',
+    height: '100%',
+  },
+  uploadButton: {
+    flexDirection: 'row',
+    backgroundColor: '#2563EB',
+    width: '100%',
+    paddingVertical: 12,
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  uploadButtonText: {
+    color: '#FFF',
+    fontWeight: 'bold',
+    fontSize: 14,
+  },
+  closeModalButton: {
+    width: '100%',
+    paddingVertical: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  closeModalText: {
+    color: '#64748B',
+    fontWeight: '600',
+    fontSize: 14,
   },
 });

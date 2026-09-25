@@ -123,105 +123,115 @@ export default function LoginScreen({ navigation }) {
     }
   };
 
+  // Pisahkan konten ScrollView ke dalam variabel agar tidak terjadi duplikasi kode
+  const renderContent = (
+    <ScrollView 
+      contentContainerStyle={styles.scrollContainer}
+      keyboardShouldPersistTaps="handled"
+      showsVerticalScrollIndicator={false}
+      bounces={false}
+    >
+      <View style={styles.logoContainer}>
+        <Image
+          source={require('../../assets/logo.png')}
+          style={styles.logo}
+          resizeMode="contain"
+        />
+      </View>
+
+      <Text style={styles.title}>Jurnal Digital</Text>
+      <Text style={styles.subtitle}>SMAN 1 Toli-Toli Utara</Text>
+
+      <View style={styles.formGroup}>
+        <Text style={styles.label}>MASUK MENGGUNAKAN NIP</Text>
+        <TextInput
+          style={styles.input}
+          placeholder="Masukkan NIP Anda"
+          placeholderTextColor="#94A3B8"
+          value={nip}
+          onChangeText={setNip}
+          keyboardType="default"
+          autoCapitalize="none"
+          autoCorrect={false}
+        />
+      </View>
+
+      {nipHistory.length > 0 && (
+        <View style={styles.historySection}>
+          <Text style={styles.historyLabel}>Pilih Akun Tersimpan:</Text>
+          <ScrollView 
+            horizontal 
+            showsHorizontalScrollIndicator={false} 
+            contentContainerStyle={styles.chipContainer}
+            keyboardShouldPersistTaps="handled"
+          >
+            {nipHistory.map((item) => (
+              <View 
+                key={item} 
+                style={[
+                  styles.chip, 
+                  nip === item && styles.chipActive
+                ]}
+              >
+                <TouchableOpacity 
+                  style={styles.chipContent} 
+                  onPress={() => setNip(item)}
+                >
+                  <Ionicons 
+                    name="person-circle-outline" 
+                    size={16} 
+                    color={nip === item ? '#2563EB' : '#475569'} 
+                  />
+                  <Text 
+                    style={[
+                      styles.chipText, 
+                      nip === item && styles.chipTextActive
+                    ]}
+                  >
+                    {item}
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity 
+                  style={styles.chipDelete} 
+                  onPress={() => removeNipFromHistory(item)}
+                >
+                  <Ionicons name="close-circle" size={16} color="#94A3B8" />
+                </TouchableOpacity>
+              </View>
+            ))}
+          </ScrollView>
+        </View>
+      )}
+
+      <TouchableOpacity 
+        style={[styles.button, loading && styles.buttonDisabled]} 
+        onPress={handleLogin} 
+        disabled={loading}
+      >
+        {loading ? (
+          <ActivityIndicator color="#FFF" />
+        ) : (
+          <Text style={styles.buttonText}>Masuk</Text>
+        )}
+      </TouchableOpacity>
+    </ScrollView>
+  );
+
   return (
     <KeyboardAvoidingView 
       style={styles.mainContainer} 
       behavior={Platform.OS === 'ios' ? 'padding' : 'padding'}
       keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 24}
     >
-      <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-        <ScrollView 
-          contentContainerStyle={styles.scrollContainer}
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
-          bounces={false}
-        >
-          <View style={styles.logoContainer}>
-            <Image
-              source={require('../../assets/logo.png')}
-              style={styles.logo}
-              resizeMode="contain"
-            />
-          </View>
-
-          <Text style={styles.title}>Jurnal Digital</Text>
-          <Text style={styles.subtitle}>SMAN 1 Toli-Toli Utara</Text>
-
-          <View style={styles.formGroup}>
-            <Text style={styles.label}>MASUK MENGGUNAKAN NIP</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Masukkan NIP Anda"
-              placeholderTextColor="#94A3B8"
-              value={nip}
-              onChangeText={setNip}
-              keyboardType="default"
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
-          </View>
-
-          {nipHistory.length > 0 && (
-            <View style={styles.historySection}>
-              <Text style={styles.historyLabel}>Pilih Akun Tersimpan:</Text>
-              <ScrollView 
-                horizontal 
-                showsHorizontalScrollIndicator={false} 
-                contentContainerStyle={styles.chipContainer}
-                keyboardShouldPersistTaps="handled"
-              >
-                {nipHistory.map((item) => (
-                  <View 
-                    key={item} 
-                    style={[
-                      styles.chip, 
-                      nip === item && styles.chipActive
-                    ]}
-                  >
-                    <TouchableOpacity 
-                      style={styles.chipContent} 
-                      onPress={() => setNip(item)}
-                    >
-                      <Ionicons 
-                        name="person-circle-outline" 
-                        size={16} 
-                        color={nip === item ? '#2563EB' : '#475569'} 
-                      />
-                      <Text 
-                        style={[
-                          styles.chipText, 
-                          nip === item && styles.chipTextActive
-                        ]}
-                      >
-                        {item}
-                      </Text>
-                    </TouchableOpacity>
-
-                    <TouchableOpacity 
-                      style={styles.chipDelete} 
-                      onPress={() => removeNipFromHistory(item)}
-                    >
-                      <Ionicons name="close-circle" size={16} color="#94A3B8" />
-                    </TouchableOpacity>
-                  </View>
-                ))}
-              </ScrollView>
-            </View>
-          )}
-
-          <TouchableOpacity 
-            style={[styles.button, loading && styles.buttonDisabled]} 
-            onPress={handleLogin} 
-            disabled={loading}
-          >
-            {loading ? (
-              <ActivityIndicator color="#FFF" />
-            ) : (
-              <Text style={styles.buttonText}>Masuk</Text>
-            )}
-          </TouchableOpacity>
-        </ScrollView>
-      </TouchableWithoutFeedback>
+      {/* Deteksi Platform: Jika Web, langsung render tanpa TouchableWithoutFeedback */}
+      {Platform.OS === 'web' ? (
+        renderContent
+      ) : (
+        <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+          {renderContent}
+        </TouchableWithoutFeedback>
+      )}
     </KeyboardAvoidingView>
   );
 }
