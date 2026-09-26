@@ -85,7 +85,6 @@ export default function RiwayatLayananBKScreen({ navigation }) {
     return months.indexOf(monthName);
   };
 
-  // PEMBARUAN: Penyederhanaan fungsi parsing bulan
   const parseDateToMonthIndex = (dateString) => {
     if (!dateString) return -1;
     
@@ -201,9 +200,10 @@ export default function RiwayatLayananBKScreen({ navigation }) {
         chunkedImages.push(imagesToPrint.slice(i, i + 4));
       }
 
+      // PERBAIKAN: Judul lampiran hanya dirender jika index === 0 (halaman lampiran pertama saja)
       const lampiranHTML = chunkedImages.map((chunk, index) => `
         <div class="page-break"></div>
-        <h2>${index === 0 ? 'Lampiran Dokumentasi' : 'Lampiran Dokumentasi (Lanjutan)'}</h2>
+        ${index === 0 ? '<h2>Lampiran Dokumentasi</h2>' : ''}
         <div class="grid-container">
           ${chunk.map(item => `
             <div class="lampiran-item">
@@ -223,12 +223,11 @@ export default function RiwayatLayananBKScreen({ navigation }) {
         <html>
           <head>
             <meta charset="utf-8">
-            <title>Laporan Layanan BK - ${selectedBulan}</title>
+            <title>LAPORAN LAYANAN BIMBINGAN DAN KONSELING</title>
             <style>
               @page { margin: 15mm; }
               body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #333; margin: 0; padding: 0; -webkit-print-color-adjust: exact; }
               
-              /* CSS Khusus Mode Web Preview */
               @media screen {
                 body { padding-top: 70px; background-color: #f1f5f9; }
                 .document-wrapper { background-color: white; max-width: 210mm; margin: 0 auto; padding: 20mm; box-shadow: 0 4px 6px rgba(0,0,0,0.1); border-radius: 4px; }
@@ -282,7 +281,8 @@ export default function RiwayatLayananBKScreen({ navigation }) {
             
             <div class="document-wrapper">
               <div class="header-container">
-                <h1>Laporan Riwayat Layanan Bimbingan dan Konseling</h1>
+                <!-- PERBAIKAN: Judul laporan diperbarui -->
+                <h1>LAPORAN LAYANAN BIMBINGAN DAN KONSELING</h1>
                 <p class="subtitle">Semester: <strong>${selectedSemester}</strong> | Bulan: <strong>${selectedBulan}</strong></p>
                 <p class="guru-bk">Guru Pembimbing: <strong>${namaGuruBKLogin}</strong></p>
               </div>
@@ -310,7 +310,6 @@ export default function RiwayatLayananBKScreen({ navigation }) {
         </html>
       `;
 
-      // PEMBARUAN: Menggunakan Fullscreen Iframe Preview untuk Web/PWA
       if (Platform.OS === 'web') {
         window.closePrintPreview = () => {
           const iframe = document.getElementById('print-preview-iframe');
@@ -337,7 +336,6 @@ export default function RiwayatLayananBKScreen({ navigation }) {
         iframeDoc.write(htmlContent);
         iframeDoc.close();
       } else {
-        // Mode Native (Android/iOS)
         await Print.printAsync({ html: htmlContent });
       }
 
@@ -356,7 +354,6 @@ export default function RiwayatLayananBKScreen({ navigation }) {
     setShowDetailModal(true);
   };
 
-  // PEMBARUAN: Menggunakan URL Thumbnail Google Drive yang stabil di Web & Native
   const getDriveDirectUrl = (url) => {
     if (!url || typeof url !== 'string') return null;
     const match = url.match(/[-\w]{25,}/); 
@@ -456,7 +453,6 @@ export default function RiwayatLayananBKScreen({ navigation }) {
 
               <FlatList
                 data={filteredData}
-                // PEMBARUAN: Fallback key menggunakan index
                 keyExtractor={(item, index) => item.id ? String(item.id) : String(index)}
                 renderItem={renderTableRow}
                 showsVerticalScrollIndicator={false}
