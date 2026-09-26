@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useContext } from 'react';
 import {
   View,
   Text,
@@ -14,13 +14,17 @@ import {
   Platform
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import * as Print from 'expo-print';
 import { callBackendAPI } from '../api/client'; 
+import { AuthContext } from '../context/AuthContext'; 
 
 const SEMESTER_OPTIONS = ['Ganjil', 'Genap'];
 const BULAN_GANJIL = ['Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
 const BULAN_GENAP = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni'];
 
 export default function RiwayatLayananBKScreen({ navigation }) {
+  const { user } = useContext(AuthContext);
+
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState([]);
   const [filteredData, setFilteredData] = useState([]);
@@ -83,14 +87,31 @@ export default function RiwayatLayananBKScreen({ navigation }) {
 
   const parseDateToMonthIndex = (dateString) => {
     if (!dateString) return -1;
-    let d = new Date(dateString);
-    if (!isNaN(d.getMonth())) return d.getMonth();
-
-    const parts = dateString.split(/[-/]/);
+    
+    const str = String(dateString).trim();
+    const parts = str.split(/[-/.]/);
+    
     if (parts.length === 3) {
-      const isDayFirst = parseInt(parts[0]) > 12; 
-      const monthPart = isDayFirst ? parts[1] : parts[0];
-      return parseInt(monthPart, 10) - 1; 
+      let monthNum = -1;
+      if (parts[0].length === 4) {
+        monthNum = parseInt(parts[1], 10);
+      } else {
+        monthNum = parseInt(parts[1], 10);
+      }
+      if (!isNaN(monthNum) && monthNum >= 1 && monthNum <= 12) {
+        return monthNum - 1; 
+      }
+    }
+
+    const months = [
+      'januari', 'februari', 'maret', 'april', 'mei', 'juni',
+      'juli', 'agustus', 'september', 'oktober', 'november', 'desember'
+    ];
+    const lowerStr = str.toLowerCase();
+    for (let i = 0; i < months.length; i++) {
+      if (lowerStr.includes(months[i])) {
+        return i;
+      }
     }
     return -1;
   };
@@ -130,11 +151,189 @@ export default function RiwayatLayananBKScreen({ navigation }) {
     setFilteredData(result);
   };
 
-  const handleCetak = () => {
-    if (Platform.OS === 'web') {
-      window.alert('Fitur cetak dokumen (PDF/Excel) sedang dalam pengembangan.');
-    } else {
-      Alert.alert('Informasi', 'Fitur cetak dokumen (PDF/Excel) sedang dalam pengembangan.');
+  const handleCetak = async () => {
+    const namaGuruBKLogin = user?.nama || user?.name || user?.namaGuru || ""; 
+
+    if (!namaGuruBKLogin) {
+      if (Platform.OS === 'web') {
+        window.alert('Gagal mengidentifikasi nama Guru BK yang sedang login.');
+      } else {
+        Alert.alert('Error', 'Gagal mengidentifikasi nama Guru BK yang sedang login.');
+      }
+      return;
+    }
+
+    const dataMilikGuru = filteredData.filter(item => 
+      item.namaGuruBK && item.namaGuruBK.toLowerCase() === namaGuruBKLogin.toLowerCase()
+    );
+
+    if (dataMilikGuru.length === 0) {
+      if (Platform.OS === 'web') {
+        window.alert('Tidak ada data layanan untuk dicetak pada sesi Guru BK saat ini.');
+      } else {
+        Alert.alert('Info', 'Tidak ada data layanan untuk dicetak pada sesi Guru BK saat ini.');
+      }
+      return;
+    }
+
+    try {
+      const getPrintImgUrl = (item) => {
+        const url = item.dokumentasi || item.Dokumentasi || item.foto || item.fotoDokumentasi || null;
+        if (!url || typeof url !== 'string') return null;
+        const match = url.match(/[-\w]{25,}/);
+        if (match && match[0]) {
+          return `https://drive.google.com/thumbnail?id=${match[0]}&sz=w800`;
+        }
+        return url;
+      };
+
+      const tableRows = dataMilikGuru.map(item => `
+        <tr>
+          <td>${item.tanggal || '-'}</td>
+          <td>${item.namaSiswa || '-'}</td>
+          <td>${item.kelas || '-'}</td>
+          <td>${item.jenisLayanan || '-'}</td>
+          <td>${item.statusKasus || '-'}</td>
+          <td>${item.kasus || item.keluhan || '-'}</td>
+          <td>${item.solusi || '-'}</td>
+        </tr>
+      `).join('');
+
+      const imagesToPrint = dataMilikGuru.filter(item => getPrintImgUrl(item));
+      const chunkedImages = [];
+      for (let i = 0; i < imagesToPrint.length; i += 4) {
+        chunkedImages.push(imagesToPrint.slice(i, i + 4));
+      }
+
+      const lampiranHTML = chunkedImages.map((chunk, index) => `
+        <div class="page-break"></div>
+        <h2>${index === 0 ? 'Lampiran Dokumentasi' : 'Lampiran Dokumentasi (Lanjutan)'}</h2>
+        <div class="grid-container">
+          ${chunk.map(item => `
+            <div class="lampiran-item">
+              <p class="lampiran-text">
+                <strong>Tanggal:</strong> ${item.tanggal || '-'}<br/>
+                <strong>Nama Siswa:</strong> ${item.namaSiswa || '-'}
+              </p>
+              <img src="${getPrintImgUrl(item)}" alt="Dokumentasi" 
+                   onload="window.dispatchEvent(new Event('resize'));"
+                   onerror="this.style.display='none'; this.insertAdjacentHTML('afterend', '<p style=\\'color:red;\\'><i>Gagal memuat gambar.</i></p>');" />
+            </div>
+          `).join('')}
+        </div>
+      `).join('');
+
+      const htmlContent = `
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <meta charset="utf-8">
+            <title>Laporan Layanan BK</title>
+            <style>
+              @page { margin: 15mm; }
+              body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #333; margin: 0; padding: 0; -webkit-print-color-adjust: exact; }
+              
+              .header-container { text-align: center; margin-bottom: 38px; }
+              h1 { font-size: 22px; margin-bottom: 5px; text-transform: uppercase; }
+              p.subtitle { font-size: 14px; color: #666; margin: 0 0 5px 0; }
+              p.guru-bk { font-size: 14px; color: #0f172a; font-weight: bold; margin: 5px 0 0 0; }
+              
+              table { width: 100%; border-collapse: collapse; margin-bottom: 30px; font-size: 12px; page-break-inside: auto; }
+              tr { page-break-inside: avoid; page-break-after: auto; }
+              th, td { border: 1px solid #ddd; padding: 10px; text-align: left; vertical-align: top; }
+              th { background-color: #f1f5f9 !important; font-weight: bold; color: #334155; }
+              
+              .page-break { page-break-before: always; }
+              h2 { font-size: 18px; margin-bottom: 15px; border-bottom: 2px solid #e2e8f0; padding-bottom: 8px; color: #0f172a; }
+              
+              .grid-container {
+                display: grid;
+                grid-template-columns: repeat(2, 1fr);
+                grid-template-rows: repeat(2, 1fr);
+                gap: 15px;
+                height: 85vh; 
+                box-sizing: border-box;
+              }
+              .lampiran-item {
+                border: 1px solid #cbd5e1;
+                border-radius: 8px;
+                padding: 10px;
+                background-color: #f8fafc !important;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: flex-start;
+                text-align: center;
+                box-sizing: border-box;
+                overflow: hidden;
+              }
+              .lampiran-text { font-size: 13px; margin: 0 0 10px 0; color: #475569; line-height: 1.4; }
+              .lampiran-item img {
+                max-width: 100%;
+                max-height: 80%; 
+                object-fit: contain;
+                margin: auto;
+              }
+            </style>
+          </head>
+          <body>
+            
+            <div class="header-container">
+              <h1>Laporan Riwayat Layanan Bimbingan dan Konseling</h1>
+              <p class="subtitle">Semester: <strong>${selectedSemester}</strong> | Bulan: <strong>${selectedBulan}</strong></p>
+              <p class="guru-bk">Guru Pembimbing: <strong>${namaGuruBKLogin}</strong></p>
+            </div>
+            
+            <table>
+              <thead>
+                <tr>
+                  <th style="width: 10%;">Tanggal</th>
+                  <th style="width: 15%;">Nama Siswa</th>
+                  <th style="width: 10%;">Kelas</th>
+                  <th style="width: 15%;">Jenis Layanan</th>
+                  <th style="width: 10%;">Status</th>
+                  <th style="width: 20%;">Masalah/Kasus</th>
+                  <th style="width: 20%;">Solusi</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${tableRows}
+              </tbody>
+            </table>
+
+            ${lampiranHTML}
+          </body>
+        </html>
+      `;
+
+      // --- PEMBARUAN PENTING UNTUK PWA ---
+      if (Platform.OS === 'web') {
+        const printWindow = window.open('', '_blank');
+        if (printWindow) {
+          printWindow.document.write(htmlContent);
+          printWindow.document.close();
+          printWindow.focus();
+          
+          // Beri jeda agar gambar dokumentasi termuat sebelum dialog print muncul
+          setTimeout(() => {
+            printWindow.print();
+            printWindow.close();
+          }, 1000);
+        } else {
+          window.alert('Gagal membuka jendela cetak. Mohon izinkan pop-up (Pop-ups blocked) di browser Anda.');
+        }
+      } else {
+        // Mode Native (Android/iOS)
+        await Print.printAsync({ html: htmlContent });
+      }
+
+    } catch (error) {
+      console.error('Print Error:', error);
+      if (Platform.OS === 'web') {
+        window.alert('Terjadi kesalahan saat mencoba mencetak dokumen.');
+      } else {
+        Alert.alert('Error', 'Terjadi kesalahan saat mencoba mencetak dokumen.');
+      }
     }
   };
 
@@ -143,22 +342,14 @@ export default function RiwayatLayananBKScreen({ navigation }) {
     setShowDetailModal(true);
   };
 
-  // --- PEMBARUAN: Penanganan URL Drive Menggunakan Thumbnail API untuk Web ---
   const getDriveDirectUrl = (url) => {
     if (!url || typeof url !== 'string') return null;
-    
-    // Mengekstrak ID File Google Drive
     const match = url.match(/[-\w]{25,}/); 
     if (match && match[0]) {
       const fileId = match[0];
-      
       if (Platform.OS === 'web') {
-        // Menggunakan Thumbnail API Google Drive khusus untuk mode PWA/Web
-        // Parameter sz=w1000 digunakan agar resolusi gambar tetap bagus
         return `https://drive.google.com/thumbnail?id=${fileId}&sz=w1000`;
       }
-      
-      // Jika berjalan di Native (Android/iOS), gunakan link download langsung
       return `https://drive.google.com/uc?id=${fileId}`;
     }
     return url; 
