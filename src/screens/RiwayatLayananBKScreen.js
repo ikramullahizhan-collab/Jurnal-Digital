@@ -143,18 +143,23 @@ export default function RiwayatLayananBKScreen({ navigation }) {
     setShowDetailModal(true);
   };
 
-  // --- PEMBARUAN: Penanganan URL Drive Khusus PWA (CORS Fix) ---
+  // --- PEMBARUAN: Penanganan URL Drive Menggunakan Thumbnail API untuk Web ---
   const getDriveDirectUrl = (url) => {
     if (!url || typeof url !== 'string') return null;
+    
+    // Mengekstrak ID File Google Drive
     const match = url.match(/[-\w]{25,}/); 
     if (match && match[0]) {
-      const driveDirectUrl = `https://drive.google.com/uc?id=${match[0]}`;
-      // Jika di web, bungkus dengan layanan proxy gambar untuk melewati pemblokiran CORS
+      const fileId = match[0];
+      
       if (Platform.OS === 'web') {
-        return `https://wsrv.nl/?url=${encodeURIComponent(driveDirectUrl)}&output=webp`;
+        // Menggunakan Thumbnail API Google Drive khusus untuk mode PWA/Web
+        // Parameter sz=w1000 digunakan agar resolusi gambar tetap bagus
+        return `https://drive.google.com/thumbnail?id=${fileId}&sz=w1000`;
       }
-      // Jika di Native (Android/iOS), gunakan link Drive langsung
-      return driveDirectUrl;
+      
+      // Jika berjalan di Native (Android/iOS), gunakan link download langsung
+      return `https://drive.google.com/uc?id=${fileId}`;
     }
     return url; 
   };
