@@ -170,7 +170,6 @@ export default function JurnalBKScreen({ route, navigation }) {
         setSolusi('');
         setImageUri(null);
         setFotoBase64('');
-        // Jangan reset selectedSiswa jika berasal dari prefill
         if (!route?.params?.prefillSiswa) {
           setSelectedSiswa(null);
         }
@@ -210,21 +209,47 @@ export default function JurnalBKScreen({ route, navigation }) {
 
         <View style={styles.divider} />
 
-        {/* Tanggal (Date Picker) */}
+        {/* Tanggal (Date Picker Web & Native) */}
         <Text style={styles.label}>Tanggal Layanan</Text>
-        <TouchableOpacity style={styles.dropdownBtn} onPress={() => setShowDatePicker(true)}>
-          <Text style={styles.dropdownText}>{tanggal}</Text>
-          <Ionicons name="calendar-outline" size={20} color="#64748B" />
-        </TouchableOpacity>
-        
-        {showDatePicker && (
-          <DateTimePicker
-            value={dateObj}
-            mode="date"
-            display="default"
-            onValueChange={handleDateChange}
-            onDismiss={() => setShowDatePicker(false)}
-          />
+        {Platform.OS === 'web' ? (
+          React.createElement('input', {
+            type: 'date',
+            value: tanggal,
+            onChange: (e) => {
+              const selectedDate = e.target.value;
+              setTanggal(selectedDate);
+              setDateObj(new Date(selectedDate));
+            },
+            style: {
+              width: '100%',
+              padding: '12px',
+              borderRadius: '8px',
+              border: '1px solid #CBD5E1',
+              backgroundColor: '#F1F5F9',
+              color: '#334155',
+              fontSize: '14px',
+              outline: 'none',
+              fontFamily: 'inherit',
+              boxSizing: 'border-box',
+            }
+          })
+        ) : (
+          <View>
+            <TouchableOpacity style={styles.dropdownBtn} onPress={() => setShowDatePicker(true)}>
+              <Text style={styles.dropdownText}>{tanggal}</Text>
+              <Ionicons name="calendar-outline" size={20} color="#64748B" />
+            </TouchableOpacity>
+            
+            {showDatePicker && (
+              <DateTimePicker
+                value={dateObj}
+                mode="date"
+                display="default"
+                onValueChange={handleDateChange}
+                onDismiss={() => setShowDatePicker(false)}
+              />
+            )}
+          </View>
         )}
 
         {/* Pilih Kelas */}
@@ -438,7 +463,6 @@ export default function JurnalBKScreen({ route, navigation }) {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F8FAFC' },
   centerBox: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  // ✅ Ditambahkan paddingBottom agar konten terbawah tidak tertutup bottom tab navigation
   contentContainer: { padding: 16, paddingBottom: 40 },
   card: { backgroundColor: '#FFF', padding: 20, borderRadius: 12, borderWidth: 1, borderColor: '#E2E8F0', marginBottom: 20 },
   
