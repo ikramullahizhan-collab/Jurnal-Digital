@@ -1,0 +1,1 @@
+tampilkan jurnal guru yang memiliki hambatan saja 
