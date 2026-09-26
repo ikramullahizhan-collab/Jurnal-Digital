@@ -56,7 +56,6 @@ export default function RiwayatLayananBKScreen({ navigation }) {
         setData([]);
       }
     } catch (error) {
-      // Penanganan Alert untuk Web PWA (beberapa versi peramban butuh fallback)
       if (Platform.OS === 'web') {
         window.alert('Gagal mengambil data riwayat layanan.');
       } else {
@@ -144,11 +143,18 @@ export default function RiwayatLayananBKScreen({ navigation }) {
     setShowDetailModal(true);
   };
 
+  // --- PEMBARUAN: Penanganan URL Drive Khusus PWA (CORS Fix) ---
   const getDriveDirectUrl = (url) => {
     if (!url || typeof url !== 'string') return null;
     const match = url.match(/[-\w]{25,}/); 
     if (match && match[0]) {
-      return `https://drive.google.com/uc?id=${match[0]}`;
+      const driveDirectUrl = `https://drive.google.com/uc?id=${match[0]}`;
+      // Jika di web, bungkus dengan layanan proxy gambar untuk melewati pemblokiran CORS
+      if (Platform.OS === 'web') {
+        return `https://wsrv.nl/?url=${encodeURIComponent(driveDirectUrl)}&output=webp`;
+      }
+      // Jika di Native (Android/iOS), gunakan link Drive langsung
+      return driveDirectUrl;
     }
     return url; 
   };
@@ -374,7 +380,6 @@ const styles = StyleSheet.create({
     flex: 1, 
     fontSize: 14, 
     color: '#334155',
-    // Perbaikan untuk PWA vs Native
     ...Platform.select({
       web: { outlineStyle: 'none' }
     })
