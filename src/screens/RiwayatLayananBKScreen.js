@@ -85,6 +85,7 @@ export default function RiwayatLayananBKScreen({ navigation }) {
     return months.indexOf(monthName);
   };
 
+  // PEMBARUAN: Penyederhanaan fungsi parsing bulan
   const parseDateToMonthIndex = (dateString) => {
     if (!dateString) return -1;
     
@@ -92,12 +93,7 @@ export default function RiwayatLayananBKScreen({ navigation }) {
     const parts = str.split(/[-/.]/);
     
     if (parts.length === 3) {
-      let monthNum = -1;
-      if (parts[0].length === 4) {
-        monthNum = parseInt(parts[1], 10);
-      } else {
-        monthNum = parseInt(parts[1], 10);
-      }
+      const monthNum = parseInt(parts[1], 10);
       if (!isNaN(monthNum) && monthNum >= 1 && monthNum <= 12) {
         return monthNum - 1; 
       }
@@ -216,7 +212,6 @@ export default function RiwayatLayananBKScreen({ navigation }) {
                 <strong>Nama Siswa:</strong> ${item.namaSiswa || '-'}
               </p>
               <img src="${getPrintImgUrl(item)}" alt="Dokumentasi" 
-                   onload="window.dispatchEvent(new Event('resize'));"
                    onerror="this.style.display='none'; this.insertAdjacentHTML('afterend', '<p style=\\'color:red;\\'><i>Gagal memuat gambar.</i></p>');" />
             </div>
           `).join('')}
@@ -228,11 +223,31 @@ export default function RiwayatLayananBKScreen({ navigation }) {
         <html>
           <head>
             <meta charset="utf-8">
-            <title>Laporan Layanan BK</title>
+            <title>Laporan Layanan BK - ${selectedBulan}</title>
             <style>
               @page { margin: 15mm; }
               body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #333; margin: 0; padding: 0; -webkit-print-color-adjust: exact; }
               
+              /* CSS Khusus Mode Web Preview */
+              @media screen {
+                body { padding-top: 70px; background-color: #f1f5f9; }
+                .document-wrapper { background-color: white; max-width: 210mm; margin: 0 auto; padding: 20mm; box-shadow: 0 4px 6px rgba(0,0,0,0.1); border-radius: 4px; }
+              }
+              @media print {
+                .no-print { display: none !important; }
+                body { padding-top: 0 !important; background-color: white; }
+                .document-wrapper { box-shadow: none; padding: 0; max-width: 100%; margin: 0; }
+              }
+
+              .preview-header {
+                position: fixed; top: 0; left: 0; right: 0; background-color: #1e293b; color: white;
+                padding: 12px 20px; display: flex; justify-content: space-between; align-items: center; z-index: 1000;
+              }
+              .btn-print { background-color: #10b981; color: white; border: none; padding: 9px 18px; border-radius: 6px; font-weight: bold; cursor: pointer; font-size: 14px; margin-left: 10px; }
+              .btn-print:hover { background-color: #059669; }
+              .btn-close { background-color: #ef4444; color: white; border: none; padding: 9px 18px; border-radius: 6px; font-weight: bold; cursor: pointer; font-size: 14px; }
+              .btn-close:hover { background-color: #dc2626; }
+
               .header-container { text-align: center; margin-bottom: 38px; }
               h1 { font-size: 22px; margin-bottom: 5px; text-transform: uppercase; }
               p.subtitle { font-size: 14px; color: #666; margin: 0 0 5px 0; }
@@ -246,82 +261,81 @@ export default function RiwayatLayananBKScreen({ navigation }) {
               .page-break { page-break-before: always; }
               h2 { font-size: 18px; margin-bottom: 15px; border-bottom: 2px solid #e2e8f0; padding-bottom: 8px; color: #0f172a; }
               
-              .grid-container {
-                display: grid;
-                grid-template-columns: repeat(2, 1fr);
-                grid-template-rows: repeat(2, 1fr);
-                gap: 15px;
-                height: 85vh; 
-                box-sizing: border-box;
-              }
-              .lampiran-item {
-                border: 1px solid #cbd5e1;
-                border-radius: 8px;
-                padding: 10px;
-                background-color: #f8fafc !important;
-                display: flex;
-                flex-direction: column;
-                align-items: center;
-                justify-content: flex-start;
-                text-align: center;
-                box-sizing: border-box;
-                overflow: hidden;
-              }
+              .grid-container { display: grid; grid-template-columns: repeat(2, 1fr); grid-template-rows: repeat(2, 1fr); gap: 15px; height: 85vh; box-sizing: border-box; }
+              .lampiran-item { border: 1px solid #cbd5e1; border-radius: 8px; padding: 10px; background-color: #f8fafc !important; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; text-align: center; box-sizing: border-box; overflow: hidden; }
               .lampiran-text { font-size: 13px; margin: 0 0 10px 0; color: #475569; line-height: 1.4; }
-              .lampiran-item img {
-                max-width: 100%;
-                max-height: 80%; 
-                object-fit: contain;
-                margin: auto;
-              }
+              .lampiran-item img { max-width: 100%; max-height: 80%; object-fit: contain; margin: auto; }
             </style>
           </head>
           <body>
             
-            <div class="header-container">
-              <h1>Laporan Riwayat Layanan Bimbingan dan Konseling</h1>
-              <p class="subtitle">Semester: <strong>${selectedSemester}</strong> | Bulan: <strong>${selectedBulan}</strong></p>
-              <p class="guru-bk">Guru Pembimbing: <strong>${namaGuruBKLogin}</strong></p>
+            <div class="no-print preview-header">
+              <div>
+                <strong style="font-size: 15px;">Pratinjau Cetak</strong>
+                <span style="font-size: 12px; opacity: 0.8; margin-left: 12px;">⏳ Pastikan gambar telah termuat sebelum dicetak.</span>
+              </div>
+              <div>
+                <button class="btn-close" onclick="window.parent.closePrintPreview()">Tutup</button>
+                <button class="btn-print" onclick="window.print()">🖨️ Cetak Dokumen</button>
+              </div>
             </div>
             
-            <table>
-              <thead>
-                <tr>
-                  <th style="width: 10%;">Tanggal</th>
-                  <th style="width: 15%;">Nama Siswa</th>
-                  <th style="width: 10%;">Kelas</th>
-                  <th style="width: 15%;">Jenis Layanan</th>
-                  <th style="width: 10%;">Status</th>
-                  <th style="width: 20%;">Masalah/Kasus</th>
-                  <th style="width: 20%;">Solusi</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${tableRows}
-              </tbody>
-            </table>
+            <div class="document-wrapper">
+              <div class="header-container">
+                <h1>Laporan Riwayat Layanan Bimbingan dan Konseling</h1>
+                <p class="subtitle">Semester: <strong>${selectedSemester}</strong> | Bulan: <strong>${selectedBulan}</strong></p>
+                <p class="guru-bk">Guru Pembimbing: <strong>${namaGuruBKLogin}</strong></p>
+              </div>
+              
+              <table>
+                <thead>
+                  <tr>
+                    <th style="width: 10%;">Tanggal</th>
+                    <th style="width: 15%;">Nama Siswa</th>
+                    <th style="width: 10%;">Kelas</th>
+                    <th style="width: 15%;">Jenis Layanan</th>
+                    <th style="width: 10%;">Status</th>
+                    <th style="width: 20%;">Masalah/Kasus</th>
+                    <th style="width: 20%;">Solusi</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${tableRows}
+                </tbody>
+              </table>
 
-            ${lampiranHTML}
+              ${lampiranHTML}
+            </div>
           </body>
         </html>
       `;
 
-      // --- PEMBARUAN PENTING UNTUK PWA ---
+      // PEMBARUAN: Menggunakan Fullscreen Iframe Preview untuk Web/PWA
       if (Platform.OS === 'web') {
-        const printWindow = window.open('', '_blank');
-        if (printWindow) {
-          printWindow.document.write(htmlContent);
-          printWindow.document.close();
-          printWindow.focus();
-          
-          // Beri jeda agar gambar dokumentasi termuat sebelum dialog print muncul
-          setTimeout(() => {
-            printWindow.print();
-            printWindow.close();
-          }, 1000);
-        } else {
-          window.alert('Gagal membuka jendela cetak. Mohon izinkan pop-up (Pop-ups blocked) di browser Anda.');
-        }
+        window.closePrintPreview = () => {
+          const iframe = document.getElementById('print-preview-iframe');
+          if (iframe) iframe.remove();
+        };
+
+        window.closePrintPreview();
+
+        const iframe = document.createElement('iframe');
+        iframe.id = 'print-preview-iframe';
+        iframe.style.position = 'fixed';
+        iframe.style.top = '0';
+        iframe.style.left = '0';
+        iframe.style.width = '100vw';
+        iframe.style.height = '100vh';
+        iframe.style.zIndex = '99999';
+        iframe.style.backgroundColor = '#f1f5f9';
+        iframe.style.border = 'none';
+
+        document.body.appendChild(iframe);
+
+        const iframeDoc = iframe.contentWindow.document;
+        iframeDoc.open();
+        iframeDoc.write(htmlContent);
+        iframeDoc.close();
       } else {
         // Mode Native (Android/iOS)
         await Print.printAsync({ html: htmlContent });
@@ -342,15 +356,12 @@ export default function RiwayatLayananBKScreen({ navigation }) {
     setShowDetailModal(true);
   };
 
+  // PEMBARUAN: Menggunakan URL Thumbnail Google Drive yang stabil di Web & Native
   const getDriveDirectUrl = (url) => {
     if (!url || typeof url !== 'string') return null;
     const match = url.match(/[-\w]{25,}/); 
     if (match && match[0]) {
-      const fileId = match[0];
-      if (Platform.OS === 'web') {
-        return `https://drive.google.com/thumbnail?id=${fileId}&sz=w1000`;
-      }
-      return `https://drive.google.com/uc?id=${fileId}`;
+      return `https://drive.google.com/thumbnail?id=${match[0]}&sz=w1000`;
     }
     return url; 
   };
@@ -445,7 +456,8 @@ export default function RiwayatLayananBKScreen({ navigation }) {
 
               <FlatList
                 data={filteredData}
-                keyExtractor={(item) => item.id ? String(item.id) : Math.random().toString()}
+                // PEMBARUAN: Fallback key menggunakan index
+                keyExtractor={(item, index) => item.id ? String(item.id) : String(index)}
                 renderItem={renderTableRow}
                 showsVerticalScrollIndicator={false}
               />
