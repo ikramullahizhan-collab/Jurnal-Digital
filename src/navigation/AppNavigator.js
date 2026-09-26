@@ -19,6 +19,7 @@ import JurnalKlsScreen from '../screens/JurnalKlsScreen';
 import AbsenKlsScreen from '../screens/AbsenKlsScreen';
 import PetaKerawananScreen from '../screens/PetaKerawananScreen'; 
 import JurnalBKScreen from '../screens/JurnalBKScreen';
+import RiwayatLayananBKScreen from '../screens/RiwayatLayananBKScreen'; // <-- Screen Baru Ditambahkan
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -199,6 +200,16 @@ function MainTabNavigator() {
         options={{
           headerShown: true,
           title: 'Jurnal BK',
+          headerTitleAlign: 'center',
+        }}
+      />
+      {/* SCREEN BARU DITAMBAHKAN DI SINI */}
+      <Tab.Screen
+        name="RiwayatLayanan" 
+        component={RiwayatLayananBKScreen}
+        options={{
+          headerShown: true,
+          title: 'Riwayat Layanan BK',
           headerTitleAlign: 'center',
         }}
       />
