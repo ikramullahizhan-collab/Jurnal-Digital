@@ -200,7 +200,6 @@ export default function RiwayatLayananBKScreen({ navigation }) {
         chunkedImages.push(imagesToPrint.slice(i, i + 4));
       }
 
-      // PERBAIKAN: Judul lampiran hanya dirender jika index === 0 (halaman lampiran pertama saja)
       const lampiranHTML = chunkedImages.map((chunk, index) => `
         <div class="page-break"></div>
         ${index === 0 ? '<h2>Lampiran Dokumentasi</h2>' : ''}
@@ -281,7 +280,6 @@ export default function RiwayatLayananBKScreen({ navigation }) {
             
             <div class="document-wrapper">
               <div class="header-container">
-                <!-- PERBAIKAN: Judul laporan diperbarui -->
                 <h1>LAPORAN LAYANAN BIMBINGAN DAN KONSELING</h1>
                 <p class="subtitle">Semester: <strong>${selectedSemester}</strong> | Bulan: <strong>${selectedBulan}</strong></p>
                 <p class="guru-bk">Guru Pembimbing: <strong>${namaGuruBKLogin}</strong></p>
@@ -354,6 +352,57 @@ export default function RiwayatLayananBKScreen({ navigation }) {
     setShowDetailModal(true);
   };
 
+  // FITUR BARU: Fungsi Hapus Data
+  const handleDelete = (item) => {
+    const executeDelete = async () => {
+      setLoading(true);
+      try {
+        const response = await callBackendAPI('deleteRiwayatBKBackend', { id: item.id });
+        
+        // Cek apakah backend mengembalikan status berhasil
+        if (response && (response.success || response.status === 'success')) {
+          fetchData();
+          if (Platform.OS === 'web') {
+            window.alert('Data riwayat layanan berhasil dihapus.');
+          } else {
+            Alert.alert('Sukses', 'Data riwayat layanan berhasil dihapus.');
+          }
+        } else {
+          // Jika backend merespon tapi success = false
+          const msg = response?.message || 'Gagal menghapus data.';
+          if (Platform.OS === 'web') {
+            window.alert(msg);
+          } else {
+            Alert.alert('Gagal', msg);
+          }
+          setLoading(false);
+        }
+      } catch (error) {
+        if (Platform.OS === 'web') {
+          window.alert('Gagal menghapus data riwayat layanan.');
+        } else {
+          Alert.alert('Error', 'Gagal menghapus data riwayat layanan.');
+        }
+        setLoading(false);
+      }
+    };
+
+    if (Platform.OS === 'web') {
+      if (window.confirm(`Apakah Anda yakin ingin menghapus layanan untuk ${item.namaSiswa}?`)) {
+        executeDelete();
+      }
+    } else {
+      Alert.alert(
+        'Konfirmasi Hapus',
+        `Apakah Anda yakin ingin menghapus layanan untuk ${item.namaSiswa}?`,
+        [
+          { text: 'Batal', style: 'cancel' },
+          { text: 'Hapus', style: 'destructive', onPress: executeDelete },
+        ]
+      );
+    }
+  };
+
   const getDriveDirectUrl = (url) => {
     if (!url || typeof url !== 'string') return null;
     const match = url.match(/[-\w]{25,}/); 
@@ -386,9 +435,13 @@ export default function RiwayatLayananBKScreen({ navigation }) {
           ]}>{item.statusKasus || '-'}</Text>
         </View>
       </View>
+      {/* FITUR BARU: Kolom Aksi dengan Tombol Detail dan Hapus */}
       <View style={[styles.cell, styles.cellAksi]}>
         <TouchableOpacity style={styles.btnDetail} onPress={() => openDetail(item)}>
           <Text style={styles.btnDetailText}>Detail</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.btnDelete} onPress={() => handleDelete(item)}>
+          <Ionicons name="trash-outline" size={16} color="#FFF" />
         </TouchableOpacity>
       </View>
     </View>
@@ -601,7 +654,8 @@ const styles = StyleSheet.create({
   cellKelas: { width: 90 },
   cellJenis: { width: 140 },
   cellStatus: { width: 120 },
-  cellAksi: { width: 80, alignItems: 'center' },
+  // PEMBARUAN STYLES: Memperlebar kolom aksi untuk menampung dua tombol
+  cellAksi: { width: 100, flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-start', gap: 6 },
   badge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12, alignSelf: 'flex-start' },
   badgeSuccess: { backgroundColor: '#D1FAE5' },
   badgeWarning: { backgroundColor: '#FEF3C7' },
@@ -610,6 +664,7 @@ const styles = StyleSheet.create({
   badgeTextWarning: { color: '#D97706' },
   btnDetail: { backgroundColor: '#C8A2C8', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6 },
   btnDetailText: { color: '#FFF', fontSize: 11, fontWeight: 'bold' },
+  btnDelete: { backgroundColor: '#EF4444', padding: 5, borderRadius: 6, justifyContent: 'center', alignItems: 'center' },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' },
   modalContent: { width: '90%', backgroundColor: '#FFF', borderRadius: 12, padding: 20 },
   modalTitle: { fontSize: 16, fontWeight: 'bold', color: '#0F172A', marginBottom: 12, textAlign: 'center' },
