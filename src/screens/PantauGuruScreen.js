@@ -88,43 +88,29 @@ export default function PantauGuruScreen({ navigation }) {
     fetchData();
   }, []);
 
-  // Buka Modal Detail
   const handleOpenDetail = (item) => {
     setSelectedItem(item);
-    setImageError(false); // Reset status error gambar setiap membuka modal baru
+    setImageError(false);
     setShowDetailModal(true);
   };
 
-  // Helper untuk menentukan warna badge berdasarkan status presensi
+  // Helper untuk menentukan warna badge
   const getStatusStyle = (status = '') => {
     const s = status.trim().toLowerCase();
-    if (s === 'alpa' || s === 'alpha') {
-      return { bg: '#FFEBEE', text: '#C62828' };
-    }
-    if (s === 'sakit') {
-      return { bg: '#FFF8E1', text: '#E65100' };
-    }
-    if (s === 'izin') {
-      return { bg: '#E3F2FD', text: '#1565C0' };
-    }
-    if (s.includes('dispen') || s.includes('tugas')) {
-      return { bg: '#F3E5F5', text: '#7B1FA2' };
-    }
+    if (s === 'alpa' || s === 'alpha') return { bg: '#FFEBEE', text: '#C62828' };
+    if (s === 'sakit') return { bg: '#FFF8E1', text: '#E65100' };
+    if (s === 'izin') return { bg: '#E3F2FD', text: '#1565C0' };
+    if (s.includes('dispen') || s.includes('tugas')) return { bg: '#F3E5F5', text: '#7B1FA2' };
     return { bg: '#E0E0E0', text: '#424242' };
   };
 
-  // Helper untuk merubah link Google Drive viewer menjadi direct image link
-  const getDirectImageUrl = (url) => {
+  // Helper cerdas mengekstrak ID File Drive (Sesuai dengan format Jurnal Mengajar)
+  const getDriveFileId = (url) => {
     if (!url) return null;
-    const driveRegex = /\/file\/d\/([a-zA-Z0-9_-]+)/;
-    const match = url.match(driveRegex);
-    if (match && match[1]) {
-      return `https://drive.google.com/uc?export=view&id=${match[1]}`;
-    }
-    return url;
+    const match = url.match(/\/file\/d\/([a-zA-Z0-9_-]+)/);
+    return match ? match[1] : null;
   };
 
-  // Render Setiap Kartu Jurnal
   const renderItem = ({ item }) => {
     return (
       <View style={styles.card}>
@@ -163,11 +149,7 @@ export default function PantauGuruScreen({ navigation }) {
           <Text style={styles.hambatanText}>{item.hambatan || '-'}</Text>
         </View>
 
-        <TouchableOpacity
-          style={styles.detailButton}
-          onPress={() => handleOpenDetail(item)}
-          activeOpacity={0.8}
-        >
+        <TouchableOpacity style={styles.detailButton} onPress={() => handleOpenDetail(item)} activeOpacity={0.8}>
           <Text style={styles.detailButtonText}>Lihat Detail Lengkap</Text>
           <Ionicons name="chevron-forward" size={16} color="#FFF" />
         </TouchableOpacity>
@@ -176,33 +158,29 @@ export default function PantauGuruScreen({ navigation }) {
   };
 
   const siswaTidakHadir = selectedItem?.listAbsen
-    ? selectedItem.listAbsen.filter(
-        (absen) => (absen.status || '').trim().toLowerCase() !== 'hadir'
-      )
+    ? selectedItem.listAbsen.filter((absen) => (absen.status || '').trim().toLowerCase() !== 'hadir')
     : [];
 
-  // Pengecekan aman properti foto dari backend
+  // Pengecekan kolom Bukti Swafoto / Bukti Foto sesuai Database
   const rawPhotoUrl = selectedItem?.buktiFoto || selectedItem?.buktiSwafoto || selectedItem?.['Bukti Swafoto'];
   const validPhotoUrl = typeof rawPhotoUrl === 'string' && rawPhotoUrl.startsWith('http') ? rawPhotoUrl : null;
-  const directImageUrl = getDirectImageUrl(validPhotoUrl);
+  const fileId = getDriveFileId(validPhotoUrl);
+  
+  // URL Tampilan Native Mobile (Masih memakai export direct-view)
+  const directImageUrl = fileId ? `https://drive.google.com/uc?export=view&id=${fileId}` : validPhotoUrl;
+  
+  // URL Tampilan Iframe Khusus PWA (Bypass CORS Drive Google)
+  const embedPreviewUrl = fileId ? `https://drive.google.com/file/d/${fileId}/preview` : validPhotoUrl;
 
   return (
     <View style={styles.container}>
-      {/* Search Header */}
       <View style={styles.headerContainer}>
         <View style={styles.headerTopRow}>
           <View style={{ flex: 1 }}>
             <Text style={styles.headerTitle}>Pantau Hambatan Guru</Text>
-            <Text style={styles.headerSubtitle}>
-              Daftar jurnal mengajar yang memiliki catatan kendala/masalah
-            </Text>
+            <Text style={styles.headerSubtitle}>Daftar jurnal mengajar yang memiliki catatan kendala/masalah</Text>
           </View>
-          <TouchableOpacity
-            style={styles.refreshIconButton}
-            onPress={fetchData}
-            disabled={loading || refreshing}
-            activeOpacity={0.7}
-          >
+          <TouchableOpacity style={styles.refreshIconButton} onPress={fetchData} disabled={loading || refreshing}>
             <Ionicons name="refresh" size={20} color="#0052CC" />
           </TouchableOpacity>
         </View>
@@ -216,22 +194,13 @@ export default function PantauGuruScreen({ navigation }) {
             onChangeText={setSearchQuery}
             placeholderTextColor="#888"
           />
-          {searchQuery !== '' && (
-            <TouchableOpacity onPress={() => setSearchQuery('')}>
-              <Ionicons name="close-circle" size={18} color="#888" />
-            </TouchableOpacity>
-          )}
         </View>
-
         <View style={styles.summaryBadge}>
           <Ionicons name="alert-circle" size={16} color="#C62828" />
-          <Text style={styles.summaryText}>
-            Ditemukan <Text style={{ fontWeight: 'bold' }}>{filteredData.length}</Text> Jurnal Bermasalah
-          </Text>
+          <Text style={styles.summaryText}>Ditemukan <Text style={{ fontWeight: 'bold' }}>{filteredData.length}</Text> Jurnal Bermasalah</Text>
         </View>
       </View>
 
-      {/* Main Content List */}
       {loading ? (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#0052CC" />
@@ -243,30 +212,12 @@ export default function PantauGuruScreen({ navigation }) {
           keyExtractor={(item) => item.idJurnal || Math.random().toString()}
           renderItem={renderItem}
           contentContainerStyle={styles.listContent}
-          refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#0052CC']} />
-          }
-          ListEmptyComponent={
-            <View style={styles.emptyContainer}>
-              <Ionicons name="checkmark-circle-outline" size={60} color="#2E7D32" />
-              <Text style={styles.emptyTitle}>Tidak Ada Hambatan</Text>
-              <Text style={styles.emptySubtitle}>
-                {searchQuery
-                  ? 'Tidak ditemukan data yang sesuai dengan kata kunci pencarian.'
-                  : 'Semua kegiatan mengajar berjalan lancar tanpa kendala.'}
-              </Text>
-            </View>
-          }
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#0052CC']} />}
         />
       )}
 
       {/* MODAL DETAIL JURNAL */}
-      <Modal
-        visible={showDetailModal}
-        animationType="slide"
-        transparent={true}
-        onRequestClose={() => setShowDetailModal(false)}
-      >
+      <Modal visible={showDetailModal} animationType="slide" transparent={true} onRequestClose={() => setShowDetailModal(false)}>
         <View style={styles.modalOverlay}>
           <View style={styles.modalContainer}>
             <View style={styles.modalHeader}>
@@ -285,9 +236,7 @@ export default function PantauGuruScreen({ navigation }) {
                   </View>
                   <View style={[styles.modalMetaBadge, { backgroundColor: '#E3F2FD' }]}>
                     <Ionicons name="school-outline" size={14} color="#1976D2" />
-                    <Text style={[styles.modalMetaText, { color: '#1976D2' }]}>
-                      {selectedItem.kelas}
-                    </Text>
+                    <Text style={[styles.modalMetaText, { color: '#1976D2' }]}>{selectedItem.kelas}</Text>
                   </View>
                 </View>
 
@@ -295,9 +244,7 @@ export default function PantauGuruScreen({ navigation }) {
                   <Text style={styles.modalLabel}>Guru Pengajar</Text>
                   <Text style={styles.modalValueBold}>{selectedItem.namaGuru}</Text>
                   <Text style={[styles.modalLabel, { marginTop: 10 }]}>Mata Pelajaran & Jam</Text>
-                  <Text style={styles.modalValue}>
-                    {selectedItem.namaMapel} (Jam ke-{selectedItem.jamKe})
-                  </Text>
+                  <Text style={styles.modalValue}>{selectedItem.namaMapel} (Jam ke-{selectedItem.jamKe})</Text>
                 </View>
 
                 <View style={styles.modalSection}>
@@ -312,79 +259,54 @@ export default function PantauGuruScreen({ navigation }) {
                   <Text style={styles.modalHambatanValue}>{selectedItem.hambatan || '-'}</Text>
                 </View>
 
-                {selectedItem.catatanKepsek ? (
-                  <View style={styles.modalKepsekBox}>
-                    <Text style={styles.modalKepsekLabel}>Catatan Kepala Sekolah:</Text>
-                    <Text style={styles.modalKepsekValue}>{selectedItem.catatanKepsek}</Text>
-                  </View>
-                ) : null}
-
-                <View style={styles.modalSection}>
-                  <Text style={styles.modalLabel}>
-                    Siswa Tidak Hadir ({siswaTidakHadir.length})
-                  </Text>
-                  {siswaTidakHadir.length > 0 ? (
-                    siswaTidakHadir.map((absen, idx) => {
-                      const styleBadge = getStatusStyle(absen.status);
-                      return (
-                        <View key={idx} style={styles.absenItemRow}>
-                          <Ionicons name="person-outline" size={16} color="#555" />
-                          <Text style={styles.absenNamaText}>{absen.nama}</Text>
-                          <View
-                            style={[
-                              styles.absenStatusBadge,
-                              { backgroundColor: styleBadge.bg },
-                            ]}
-                          >
-                            <Text style={{ fontSize: 12, fontWeight: '600', color: styleBadge.text }}>
-                              {absen.status}
-                            </Text>
-                          </View>
-                        </View>
-                      );
-                    })
-                  ) : (
-                    <Text style={styles.emptyAbsenText}>Semua siswa hadir lengkap.</Text>
-                  )}
-                </View>
-
-                {/* Bagian Bukti Foto - Mendukung PWA dengan Fallback URL */}
+                {/* PENANGANAN GAMBAR 100% PWA */}
                 {validPhotoUrl ? (
                   <View style={styles.modalSection}>
                     <Text style={styles.modalLabel}>Foto Dokumentasi Jurnal Guru</Text>
                     
-                    {!imageError && directImageUrl ? (
-                      <View style={styles.imageContainer}>
-                        <Image
-                          source={{ uri: directImageUrl }}
-                          style={styles.buktiFotoImage}
-                          resizeMode="cover"
-                          onError={() => setImageError(true)} // Deteksi jika browser PWA memblokir gambar
-                        />
+                    {Platform.OS === 'web' && fileId ? (
+                      // METODE PWA: Pakai iFrame embed aman untuk render web tanpa Error CORS
+                      <View style={styles.iframeContainer}>
+                        {React.createElement('iframe', {
+                          src: embedPreviewUrl,
+                          width: '100%',
+                          height: '350',
+                          style: { border: 'none', borderRadius: 8 },
+                          title: 'Foto Jurnal Guru'
+                        })}
                       </View>
-                    ) : null}
-
-                    {/* Tombol akan muncul di PWA (Web) ATAU jika gambar gagal dirender (CORS Block) */}
-                    {(Platform.OS === 'web' || imageError || !directImageUrl) && (
-                      <TouchableOpacity
-                        style={styles.btnOpenDrive}
-                        onPress={() => Linking.openURL(validPhotoUrl)}
-                        activeOpacity={0.8}
-                      >
-                        <Ionicons name="open-outline" size={18} color="#FFF" />
-                        <Text style={styles.btnOpenDriveText}>Buka Foto di Tab Baru</Text>
-                      </TouchableOpacity>
+                    ) : (
+                      // METODE NATIVE: (Android & iOS via APK)
+                      <View style={styles.imageContainer}>
+                        {!imageError ? (
+                          <Image
+                            source={{ uri: directImageUrl }}
+                            style={styles.buktiFotoImage}
+                            resizeMode="cover"
+                            onError={() => setImageError(true)}
+                          />
+                        ) : (
+                          <Text style={{ textAlign: 'center', marginTop: 20, color: '#888' }}>Gambar tidak dapat dimuat di Android/iOS.</Text>
+                        )}
+                      </View>
                     )}
+
+                    {/* Tombol Akses Asli Jika Ingin Layar Penuh */}
+                    <TouchableOpacity
+                      style={styles.btnOpenDrive}
+                      onPress={() => Linking.openURL(validPhotoUrl)}
+                      activeOpacity={0.8}
+                    >
+                      <Ionicons name="open-outline" size={18} color="#FFF" />
+                      <Text style={styles.btnOpenDriveText}>Lihat File Asli (Resolusi Penuh)</Text>
+                    </TouchableOpacity>
                   </View>
                 ) : null}
               </ScrollView>
             )}
 
             <View style={styles.modalFooter}>
-              <TouchableOpacity
-                style={styles.closeModalButton}
-                onPress={() => setShowDetailModal(false)}
-              >
+              <TouchableOpacity style={styles.closeModalButton} onPress={() => setShowDetailModal(false)}>
                 <Text style={styles.closeModalButtonText}>Tutup</Text>
               </TouchableOpacity>
             </View>
@@ -427,9 +349,6 @@ const styles = StyleSheet.create({
   hambatanText: { fontSize: 13, color: '#3E2723', lineHeight: 18 },
   detailButton: { backgroundColor: '#0052CC', flexDirection: 'row', justifyContent: 'center', alignItems: 'center', paddingVertical: 9, borderRadius: 6 },
   detailButtonText: { color: '#FFFFFF', fontSize: 13, fontWeight: '600', marginRight: 4 },
-  emptyContainer: { alignItems: 'center', justifyContent: 'center', paddingVertical: 60, paddingHorizontal: 20 },
-  emptyTitle: { fontSize: 18, fontWeight: 'bold', color: '#2E7D32', marginTop: 12 },
-  emptySubtitle: { fontSize: 13, color: '#666', textAlign: 'center', marginTop: 6, lineHeight: 18 },
   
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end', alignItems: 'center' },
   modalContainer: { backgroundColor: '#FFF', borderTopLeftRadius: 16, borderTopRightRadius: 16, maxHeight: '85%', width: '100%', maxWidth: 600, paddingBottom: 20 },
@@ -446,17 +365,11 @@ const styles = StyleSheet.create({
   modalHambatanBox: { backgroundColor: '#FFEBEE', borderWidth: 1, borderColor: '#FFCDD2', borderRadius: 8, padding: 12, marginBottom: 16 },
   modalHambatanLabel: { fontSize: 13, fontWeight: 'bold', color: '#C62828', marginBottom: 4 },
   modalHambatanValue: { fontSize: 14, color: '#B71C1C', lineHeight: 20 },
-  modalKepsekBox: { backgroundColor: '#E8F5E9', borderWidth: 1, borderColor: '#C8E6C9', borderRadius: 8, padding: 12, marginBottom: 16 },
-  modalKepsekLabel: { fontSize: 13, fontWeight: 'bold', color: '#2E7D32', marginBottom: 4 },
-  modalKepsekValue: { fontSize: 14, color: '#1B5E20', lineHeight: 20 },
-  absenItemRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: '#F0F0F0' },
-  absenNamaText: { flex: 1, fontSize: 13, color: '#333', marginLeft: 8 },
-  absenStatusBadge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 4 },
-  emptyAbsenText: { fontSize: 13, color: '#666', fontStyle: 'italic', marginTop: 4 },
   
+  iframeContainer: { marginTop: 8, borderRadius: 8, overflow: 'hidden', backgroundColor: '#E0E0E0', height: 350, width: '100%', borderWidth: 1, borderColor: '#E0E0E0' },
   imageContainer: { marginTop: 8, borderRadius: 8, overflow: 'hidden', backgroundColor: '#E0E0E0' },
-  buktiFotoImage: { width: '100%', height: 200 },
-  btnOpenDrive: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: '#0052CC', paddingVertical: 10, borderRadius: 8, marginTop: 10 },
+  buktiFotoImage: { width: '100%', height: 250 },
+  btnOpenDrive: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: '#2E7D32', paddingVertical: 10, borderRadius: 8, marginTop: 12 },
   btnOpenDriveText: { color: '#FFF', fontSize: 13, fontWeight: 'bold', marginLeft: 6 },
   
   modalFooter: { paddingHorizontal: 16, paddingTop: 10 },
