@@ -12,8 +12,7 @@ import {
   RefreshControl,
   Image,
   Alert,
-  Platform,
-  Linking
+  Platform
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { callBackendAPI } from '../api/client';
@@ -25,12 +24,12 @@ export default function PantauGuruScreen({ navigation }) {
   const [filteredData, setFilteredData] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
 
-  // State Modal Detail & Error Image
+  // State Modal Detail
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [selectedItem, setSelectedItem] = useState(null);
   const [imageError, setImageError] = useState(false);
 
-  // Load Data dari Backend Google Apps Script
+  // Load Data dari Backend
   const fetchData = async () => {
     try {
       setLoading(true);
@@ -90,7 +89,7 @@ export default function PantauGuruScreen({ navigation }) {
 
   const handleOpenDetail = (item) => {
     setSelectedItem(item);
-    setImageError(false);
+    setImageError(false); // Reset status error gambar
     setShowDetailModal(true);
   };
 
@@ -104,7 +103,7 @@ export default function PantauGuruScreen({ navigation }) {
     return { bg: '#E0E0E0', text: '#424242' };
   };
 
-  // Helper cerdas mengekstrak ID File Drive (Sesuai dengan format Jurnal Mengajar)
+  // Ekstrak ID File Drive (Sesuai dengan format Jurnal Mengajar)
   const getDriveFileId = (url) => {
     if (!url) return null;
     const match = url.match(/\/file\/d\/([a-zA-Z0-9_-]+)/);
@@ -161,15 +160,15 @@ export default function PantauGuruScreen({ navigation }) {
     ? selectedItem.listAbsen.filter((absen) => (absen.status || '').trim().toLowerCase() !== 'hadir')
     : [];
 
-  // Pengecekan kolom Bukti Swafoto / Bukti Foto sesuai Database
+  // Mendapatkan URL Gambar/Swafoto
   const rawPhotoUrl = selectedItem?.buktiFoto || selectedItem?.buktiSwafoto || selectedItem?.['Bukti Swafoto'];
   const validPhotoUrl = typeof rawPhotoUrl === 'string' && rawPhotoUrl.startsWith('http') ? rawPhotoUrl : null;
   const fileId = getDriveFileId(validPhotoUrl);
   
-  // URL Tampilan Native Mobile (Masih memakai export direct-view)
+  // URL untuk Image Native Mobile
   const directImageUrl = fileId ? `https://drive.google.com/uc?export=view&id=${fileId}` : validPhotoUrl;
   
-  // URL Tampilan Iframe Khusus PWA (Bypass CORS Drive Google)
+  // URL untuk iFrame PWA
   const embedPreviewUrl = fileId ? `https://drive.google.com/file/d/${fileId}/preview` : validPhotoUrl;
 
   return (
@@ -189,15 +188,11 @@ export default function PantauGuruScreen({ navigation }) {
           <Ionicons name="search" size={18} color="#666" />
           <TextInput
             style={styles.searchInput}
-            placeholder="Cari nama guru, mapel, kelas, hambatan..."
+            placeholder="Cari nama guru, mapel, kelas..."
             value={searchQuery}
             onChangeText={setSearchQuery}
             placeholderTextColor="#888"
           />
-        </View>
-        <View style={styles.summaryBadge}>
-          <Ionicons name="alert-circle" size={16} color="#C62828" />
-          <Text style={styles.summaryText}>Ditemukan <Text style={{ fontWeight: 'bold' }}>{filteredData.length}</Text> Jurnal Bermasalah</Text>
         </View>
       </View>
 
@@ -229,6 +224,7 @@ export default function PantauGuruScreen({ navigation }) {
 
             {selectedItem && (
               <ScrollView style={styles.modalBody} showsVerticalScrollIndicator={false}>
+                {/* Meta Info */}
                 <View style={styles.modalMetaRow}>
                   <View style={styles.modalMetaBadge}>
                     <Ionicons name="calendar-outline" size={14} color="#0052CC" />
@@ -240,6 +236,7 @@ export default function PantauGuruScreen({ navigation }) {
                   </View>
                 </View>
 
+                {/* Info Guru */}
                 <View style={styles.modalSection}>
                   <Text style={styles.modalLabel}>Guru Pengajar</Text>
                   <Text style={styles.modalValueBold}>{selectedItem.namaGuru}</Text>
@@ -247,36 +244,24 @@ export default function PantauGuruScreen({ navigation }) {
                   <Text style={styles.modalValue}>{selectedItem.namaMapel} (Jam ke-{selectedItem.jamKe})</Text>
                 </View>
 
-                <View style={styles.modalSection}>
-                  <Text style={styles.modalLabel}>Materi Pokok</Text>
-                  <Text style={styles.modalValue}>{selectedItem.materi || '-'}</Text>
-                  <Text style={[styles.modalLabel, { marginTop: 10 }]}>Uraian Kegiatan</Text>
-                  <Text style={styles.modalValue}>{selectedItem.uraian || '-'}</Text>
-                </View>
-
-                <View style={styles.modalHambatanBox}>
-                  <Text style={styles.modalHambatanLabel}>Catatan Hambatan / Kendala:</Text>
-                  <Text style={styles.modalHambatanValue}>{selectedItem.hambatan || '-'}</Text>
-                </View>
-
-                {/* PENANGANAN GAMBAR 100% PWA */}
+                {/* TAMPILAN FOTO LANGSUNG DI MODAL */}
                 {validPhotoUrl ? (
                   <View style={styles.modalSection}>
-                    <Text style={styles.modalLabel}>Foto Dokumentasi Jurnal Guru</Text>
+                    <Text style={[styles.modalLabel, { marginBottom: 8 }]}>Foto Dokumentasi Jurnal</Text>
                     
                     {Platform.OS === 'web' && fileId ? (
-                      // METODE PWA: Pakai iFrame embed aman untuk render web tanpa Error CORS
+                      // PWA (WEB): Menampilkan langsung melalui iframe 
                       <View style={styles.iframeContainer}>
                         {React.createElement('iframe', {
                           src: embedPreviewUrl,
                           width: '100%',
-                          height: '350',
-                          style: { border: 'none', borderRadius: 8 },
-                          title: 'Foto Jurnal Guru'
+                          height: '100%',
+                          style: { border: 'none' },
+                          allowFullScreen: true
                         })}
                       </View>
                     ) : (
-                      // METODE NATIVE: (Android & iOS via APK)
+                      // NATIVE (Android/iOS): Menampilkan langsung melalui komponen Image
                       <View style={styles.imageContainer}>
                         {!imageError ? (
                           <Image
@@ -286,22 +271,60 @@ export default function PantauGuruScreen({ navigation }) {
                             onError={() => setImageError(true)}
                           />
                         ) : (
-                          <Text style={{ textAlign: 'center', marginTop: 20, color: '#888' }}>Gambar tidak dapat dimuat di Android/iOS.</Text>
+                          <View style={styles.errorImageContainer}>
+                            <Ionicons name="image-outline" size={32} color="#999" />
+                            <Text style={styles.errorImageText}>Gambar tidak dapat dimuat</Text>
+                          </View>
                         )}
                       </View>
                     )}
-
-                    {/* Tombol Akses Asli Jika Ingin Layar Penuh */}
-                    <TouchableOpacity
-                      style={styles.btnOpenDrive}
-                      onPress={() => Linking.openURL(validPhotoUrl)}
-                      activeOpacity={0.8}
-                    >
-                      <Ionicons name="open-outline" size={18} color="#FFF" />
-                      <Text style={styles.btnOpenDriveText}>Lihat File Asli (Resolusi Penuh)</Text>
-                    </TouchableOpacity>
                   </View>
                 ) : null}
+
+                {/* Info Materi & Kegiatan */}
+                <View style={styles.modalSection}>
+                  <Text style={styles.modalLabel}>Materi Pokok</Text>
+                  <Text style={styles.modalValue}>{selectedItem.materi || '-'}</Text>
+                  <Text style={[styles.modalLabel, { marginTop: 10 }]}>Uraian Kegiatan</Text>
+                  <Text style={styles.modalValue}>{selectedItem.uraian || '-'}</Text>
+                </View>
+
+                {/* Hambatan & Kepsek */}
+                <View style={styles.modalHambatanBox}>
+                  <Text style={styles.modalHambatanLabel}>Catatan Hambatan / Kendala:</Text>
+                  <Text style={styles.modalHambatanValue}>{selectedItem.hambatan || '-'}</Text>
+                </View>
+
+                {selectedItem.catatanKepsek ? (
+                  <View style={styles.modalKepsekBox}>
+                    <Text style={styles.modalKepsekLabel}>Catatan Kepala Sekolah:</Text>
+                    <Text style={styles.modalKepsekValue}>{selectedItem.catatanKepsek}</Text>
+                  </View>
+                ) : null}
+
+                {/* Absensi */}
+                <View style={styles.modalSection}>
+                  <Text style={styles.modalLabel}>Siswa Tidak Hadir ({siswaTidakHadir.length})</Text>
+                  {siswaTidakHadir.length > 0 ? (
+                    siswaTidakHadir.map((absen, idx) => {
+                      const styleBadge = getStatusStyle(absen.status);
+                      return (
+                        <View key={idx} style={styles.absenItemRow}>
+                          <Ionicons name="person-outline" size={16} color="#555" />
+                          <Text style={styles.absenNamaText}>{absen.nama}</Text>
+                          <View style={[styles.absenStatusBadge, { backgroundColor: styleBadge.bg }]}>
+                            <Text style={{ fontSize: 12, fontWeight: '600', color: styleBadge.text }}>
+                              {absen.status}
+                            </Text>
+                          </View>
+                        </View>
+                      );
+                    })
+                  ) : (
+                    <Text style={styles.emptyAbsenText}>Semua siswa hadir lengkap.</Text>
+                  )}
+                </View>
+
               </ScrollView>
             )}
 
@@ -326,8 +349,6 @@ const styles = StyleSheet.create({
   refreshIconButton: { padding: 8, borderRadius: 8, backgroundColor: '#EFF6FF', alignItems: 'center', justifyContent: 'center', marginLeft: 8 },
   searchBox: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F3F4F6', borderRadius: 8, paddingHorizontal: 10, height: 40 },
   searchInput: { flex: 1, marginLeft: 8, fontSize: 14, color: '#1F2937' },
-  summaryBadge: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFEBEE', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6, marginTop: 10 },
-  summaryText: { fontSize: 12, color: '#C62828', marginLeft: 6 },
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   loadingText: { marginTop: 10, color: '#666', fontSize: 14 },
   listContent: { padding: 16 },
@@ -365,12 +386,20 @@ const styles = StyleSheet.create({
   modalHambatanBox: { backgroundColor: '#FFEBEE', borderWidth: 1, borderColor: '#FFCDD2', borderRadius: 8, padding: 12, marginBottom: 16 },
   modalHambatanLabel: { fontSize: 13, fontWeight: 'bold', color: '#C62828', marginBottom: 4 },
   modalHambatanValue: { fontSize: 14, color: '#B71C1C', lineHeight: 20 },
-  
-  iframeContainer: { marginTop: 8, borderRadius: 8, overflow: 'hidden', backgroundColor: '#E0E0E0', height: 350, width: '100%', borderWidth: 1, borderColor: '#E0E0E0' },
-  imageContainer: { marginTop: 8, borderRadius: 8, overflow: 'hidden', backgroundColor: '#E0E0E0' },
-  buktiFotoImage: { width: '100%', height: 250 },
-  btnOpenDrive: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: '#2E7D32', paddingVertical: 10, borderRadius: 8, marginTop: 12 },
-  btnOpenDriveText: { color: '#FFF', fontSize: 13, fontWeight: 'bold', marginLeft: 6 },
+  modalKepsekBox: { backgroundColor: '#E8F5E9', borderWidth: 1, borderColor: '#C8E6C9', borderRadius: 8, padding: 12, marginBottom: 16 },
+  modalKepsekLabel: { fontSize: 13, fontWeight: 'bold', color: '#2E7D32', marginBottom: 4 },
+  modalKepsekValue: { fontSize: 14, color: '#1B5E20', lineHeight: 20 },
+  absenItemRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: '#F0F0F0' },
+  absenNamaText: { flex: 1, fontSize: 13, color: '#333', marginLeft: 8 },
+  absenStatusBadge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 4 },
+  emptyAbsenText: { fontSize: 13, color: '#666', fontStyle: 'italic', marginTop: 4 },
+
+  /* STYLE KHUSUS TAMPILAN FOTO */
+  iframeContainer: { height: 350, width: '100%', borderRadius: 8, overflow: 'hidden', backgroundColor: '#F3F4F6', borderWidth: 1, borderColor: '#E5E7EB' },
+  imageContainer: { height: 300, width: '100%', borderRadius: 8, overflow: 'hidden', backgroundColor: '#F3F4F6' },
+  buktiFotoImage: { width: '100%', height: '100%' },
+  errorImageContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  errorImageText: { color: '#888', marginTop: 8, fontSize: 13 },
   
   modalFooter: { paddingHorizontal: 16, paddingTop: 10 },
   closeModalButton: { backgroundColor: '#E0E0E0', paddingVertical: 12, borderRadius: 8, alignItems: 'center' },
