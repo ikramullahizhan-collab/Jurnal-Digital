@@ -10,6 +10,7 @@ import {
   FlatList,
   Image,
   Alert,
+  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -295,7 +296,6 @@ export default function JurnalKlsScreen({ navigation }) {
         const idx1 = daftarBulan.indexOf(bulanMulai);
         const idx2 = daftarBulan.indexOf(bulanSelesai);
         
-        // Perbaikan: Mencegah error indeks bulan jika user salah pilih urutan terbalik
         const startIdx = Math.min(idx1, idx2);
         const endIdx = Math.max(idx1, idx2);
 
@@ -306,7 +306,7 @@ export default function JurnalKlsScreen({ navigation }) {
             const idxItem = daftarBulan.indexOf(match);
             return idxItem >= startIdx && idxItem <= endIdx;
           }
-          return true; // Asumsikan ikut tercetak jika format tanggal pakai angka (bukan text bulan)
+          return true; 
         });
         periodeJudul = `Bulan ${daftarBulan[startIdx]} s.d. ${daftarBulan[endIdx]}`;
       } else {
@@ -316,7 +316,20 @@ export default function JurnalKlsScreen({ navigation }) {
       const htmlContent = buildPdfHtml(dataFilterCetak, periodeJudul);
       setModalCetakVisible(false);
 
-      await Print.printAsync({ html: htmlContent });
+      if (Platform.OS === 'web') {
+        // Logika cetak khusus mode PWA / Web Browser
+        const printWindow = window.open('', '_blank');
+        if (printWindow) {
+          printWindow.document.write(htmlContent);
+          printWindow.document.write('<script>window.onload = function() { window.print(); }</script>');
+          printWindow.document.close();
+        } else {
+          Alert.alert('Pop-up Diblokir', 'Izinkan pop-up pada browser Anda untuk mencetak dokumen.');
+        }
+      } else {
+        // Logika cetak khusus mode Native Mobile (iOS/Android)
+        await Print.printAsync({ html: htmlContent });
+      }
     } catch (error) {
       console.log('Error saat memproses cetak:', error);
       Alert.alert('Error', 'Gagal memproses pembuatan dokumen PDF.');
@@ -440,10 +453,10 @@ export default function JurnalKlsScreen({ navigation }) {
         </View>
       </ScrollView>
 
-      {/* Modal Filter Mapel */}
+      {/* Modal Filter Mapel - Ditambahkan batasan max height dan dibungkus agar tidak penuh */}
       <Modal visible={modalMapelVisible} transparent animationType="fade">
         <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
+          <View style={[styles.modalContent, { maxHeight: '75%' }]}>
             <Text style={styles.modalTitle}>Filter Mata Pelajaran</Text>
             <FlatList
               data={listMapel}
@@ -466,7 +479,7 @@ export default function JurnalKlsScreen({ navigation }) {
       {/* Modal Cetak Jurnal */}
       <Modal visible={modalCetakVisible} transparent animationType="slide">
         <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
+          <View style={[styles.modalContent, { maxHeight: '90%' }]}>
             <Text style={styles.modalTitle}>Pengaturan Cetak Jurnal</Text>
             
             <View style={styles.cetakFormContainer}>
@@ -665,8 +678,22 @@ const styles = StyleSheet.create({
   btnTableAbsen: { backgroundColor: '#F59E0B', paddingVertical: 6, paddingHorizontal: 12, borderRadius: 6, alignItems: 'center', justifyContent: 'center' },
   btnTableDetail: { backgroundColor: '#2563EB', paddingVertical: 6, paddingHorizontal: 12, borderRadius: 6, alignItems: 'center', justifyContent: 'center' },
   btnText: { color: '#FFF', fontSize: 12, fontWeight: 'bold' },
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: 20 },
-  modalContent: { backgroundColor: '#FFF', borderRadius: 12, padding: 20 },
+  
+  /* Update Dukungan PWA & Modal Limit Tinggi */
+  modalOverlay: { 
+    flex: 1, 
+    backgroundColor: 'rgba(0,0,0,0.5)', 
+    justifyContent: 'center', 
+    alignItems: 'center', // Ditambahkan agar modal terpusat pada mode PWA
+    padding: 20 
+  },
+  modalContent: { 
+    backgroundColor: '#FFF', 
+    borderRadius: 12, 
+    padding: 20,
+    width: '100%',
+    maxWidth: 600, // Batas maksimal lebar untuk mode PWA Desktop
+  },
   modalTitle: { fontSize: 16, fontWeight: 'bold', marginBottom: 12, color: '#0F172A', textAlign: 'center' },
   modalItem: { paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: '#F1F5F9' },
   modalItemText: { fontSize: 15, color: '#334155' },

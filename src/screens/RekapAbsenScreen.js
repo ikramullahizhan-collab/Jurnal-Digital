@@ -10,6 +10,7 @@ import {
   TouchableOpacity,
   Modal,
   ScrollView,
+  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Print from 'expo-print';
@@ -83,7 +84,6 @@ export default function RekapAbsenScreen() {
     ? Boolean(idKelas && bulan && selectedMapel) 
     : Boolean(idKelas && semester && selectedMapel);
 
-  // Filter sekarang mewajibkan idKelas, bulan/semester, DAN selectedMapel
   useEffect(() => {
     if (isFilterReady) {
       fetchDataAbsen();
@@ -100,11 +100,8 @@ export default function RekapAbsenScreen() {
       setLoadingMapel(true);
       
       const namaGuruAktif = user?.nama || user?.namaLengkap || '';
-      
-      // Kirim namaGuru sebagai payload ke getFormData
       const res = await callBackendAPI('getFormData', { namaGuru: namaGuruAktif });
       
-      // 1. Set Data Kelas
       const dataKelas = res?.data?.kelas || res?.kelas || [];
       if (Array.isArray(dataKelas) && dataKelas.length > 0) {
         setListKelas(dataKelas);
@@ -112,10 +109,8 @@ export default function RekapAbsenScreen() {
         setListKelas([]);
       }
 
-      // 2. Set Data Mapel
       const dataMapel = res?.data?.mapel || res?.mapel || [];
       if (Array.isArray(dataMapel) && dataMapel.length > 0) {
-        // Ambil nama mapel saja (sesuai struktur UI Anda yang lama) dan hapus duplikat
         const namaMapelList = dataMapel.map(item => typeof item === 'object' ? (item.nama || item.id) : item);
         const uniqueMapel = [...new Set(namaMapelList)];
         setListMapel(uniqueMapel);
@@ -148,7 +143,6 @@ export default function RekapAbsenScreen() {
       const res = await callBackendAPI('getRekapAbsen', payload);
 
       if (res && res.success && Array.isArray(res.data)) {
-        
         let rawPertemuan = [];
         if (res.listPertemuan && Array.isArray(res.listPertemuan)) {
           rawPertemuan = res.listPertemuan;
@@ -214,7 +208,6 @@ export default function RekapAbsenScreen() {
     }
   };
 
-  // Fungsi untuk tombol refresh global (sejajar dengan tombol cetak)
   const handleRefreshAll = () => {
     fetchFormData();
     if (isFilterReady) {
@@ -311,6 +304,7 @@ export default function RekapAbsenScreen() {
     return { no, nama, presensiList, h, s, i, a, b, totalAbsen };
   };
 
+  // Fungsi Cetak PDF 100% PWA & Native Compatible
   const handleProsesCetakPdf = async () => {
     if (!filteredData || filteredData.length === 0) {
       Alert.alert('Informasi', 'Tidak ada data presensi untuk dicetak.');
@@ -523,7 +517,35 @@ export default function RekapAbsenScreen() {
       }
 
       setModalCetakVisible(false);
-      await Print.printAsync({ html: htmlContent });
+
+      // Metodologi Print Hybrid PWA & Native
+      if (Platform.OS === 'web') {
+        const iframe = document.createElement('iframe');
+        iframe.style.position = 'fixed';
+        iframe.style.right = '0';
+        iframe.style.bottom = '0';
+        iframe.style.width = '0';
+        iframe.style.height = '0';
+        iframe.style.border = '0';
+        document.body.appendChild(iframe);
+
+        const iframeDoc = iframe.contentWindow.document;
+        iframeDoc.open();
+        iframeDoc.write(htmlContent);
+        iframeDoc.close();
+
+        iframe.contentWindow.focus();
+        setTimeout(() => {
+          iframe.contentWindow.print();
+          setTimeout(() => {
+            if (document.body.contains(iframe)) {
+              document.body.removeChild(iframe);
+            }
+          }, 1000);
+        }, 300);
+      } else {
+        await Print.printAsync({ html: htmlContent });
+      }
     } catch (error) {
       console.log('Error Cetak PDF:', error);
       Alert.alert('Error', 'Gagal memproses pembuatan PDF.');
@@ -556,7 +578,7 @@ export default function RekapAbsenScreen() {
   const renderModalCetak = () => (
     <Modal visible={modalCetakVisible} transparent animationType="fade">
       <View style={styles.modalOverlay}>
-        <View style={[styles.modalContent, { width: '88%' }]}>
+        <View style={[styles.modalContent, styles.pwaModalBox]}>
           <View style={styles.modalCetakHeader}>
             <Text style={styles.modalTitle}>Cetak Absensi Siswa</Text>
             <TouchableOpacity onPress={() => setModalCetakVisible(false)}>
@@ -698,7 +720,6 @@ export default function RekapAbsenScreen() {
             </TouchableOpacity>
           ) : null}
 
-          {/* TOMBOL REFRESH BARU (Sejajar dengan tombol Cetak di atasnya) */}
           <TouchableOpacity 
             style={styles.refreshButton} 
             onPress={handleRefreshAll}
@@ -713,7 +734,7 @@ export default function RekapAbsenScreen() {
         </View>
       </View>
 
-      {/* Tampilan Data Utama Mobile */}
+      {/* Tampilan Data Utama Mobile/PWA */}
       {!isFilterReady ? (
         <View style={styles.emptyContainer}>
           <Ionicons name="filter-outline" size={48} color="#94A3B8" />
@@ -765,7 +786,7 @@ export default function RekapAbsenScreen() {
           activeOpacity={1}
           onPress={() => setModalVisible(false)}
         >
-          <View style={styles.modalContent}>
+          <View style={[styles.modalContent, styles.pwaModalBox]}>
             <Text style={styles.modalTitle}>
               {modalType === 'KELAS'
                 ? 'Pilih Kelas'
@@ -778,8 +799,6 @@ export default function RekapAbsenScreen() {
                 : 'Pilih Model Cetak'}
             </Text>
             <ScrollView style={{ maxHeight: 300 }}>
-              
-              {/* Render Mapel Options */}
               {modalType === 'MAPEL' &&
                 (listMapel.length > 0 ? (
                   listMapel.map((item, index) => {
@@ -900,8 +919,6 @@ const styles = StyleSheet.create({
   selectText: { fontSize: 13, color: '#334155', fontWeight: '500', flex: 1, marginRight: 4 },
   placeholderText: { color: '#94A3B8' },
   printButton: { alignItems: 'center', justifyContent: 'center', backgroundColor: '#10B981', height: 40, width: 40, borderRadius: 8, marginLeft: 3 },
-  
-  /* Style Tambahan untuk Tombol Refresh */
   refreshButton: { alignItems: 'center', justifyContent: 'center', backgroundColor: '#3B82F6', height: 40, width: 40, borderRadius: 8, marginLeft: 3 },
   
   tableWrapper: { flex: 1, marginHorizontal: 12, marginBottom: 12, backgroundColor: '#FFF', borderRadius: 8, borderWidth: 1, borderColor: '#E2E8F0', overflow: 'hidden' },
@@ -927,6 +944,7 @@ const styles = StyleSheet.create({
   emptyText: { marginTop: 12, fontSize: 15, color: '#94A3B8' },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(15, 23, 42, 0.4)', justifyContent: 'center', alignItems: 'center', padding: 24 },
   modalContent: { width: '100%', backgroundColor: '#FFF', borderRadius: 12, padding: 16, elevation: 5, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.25, shadowRadius: 4 },
+  pwaModalBox: { maxWidth: 500, alignSelf: 'center' },
   modalTitle: { fontSize: 16, fontWeight: 'bold', color: '#1E293B', textAlign: 'center', marginBottom: 8 },
   modalItem: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 12, paddingHorizontal: 8, borderBottomWidth: 1, borderBottomColor: '#F1F5F9' },
   modalItemSelected: { backgroundColor: '#EFF6FF', borderRadius: 6 },

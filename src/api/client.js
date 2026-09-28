@@ -1,4 +1,4 @@
-const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwENR8b4Ox9ZLxcBY-QmJ7ZneUEaRSLrSom9qLkyWTM2KySQG0riYhHd7qMYQ_iqALx/exec';
+const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwhpzv-5556F4-fKbMsze_V8ejuqdfP-qF-kSmZqxTMPlztI3aVy_Z9tXG3bBYAR0I/exec';
 
 export const callBackendAPI = async (action, payload = {}) => {
   try {

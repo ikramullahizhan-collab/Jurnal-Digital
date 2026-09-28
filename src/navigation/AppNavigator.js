@@ -19,7 +19,8 @@ import JurnalKlsScreen from '../screens/JurnalKlsScreen';
 import AbsenKlsScreen from '../screens/AbsenKlsScreen';
 import PetaKerawananScreen from '../screens/PetaKerawananScreen'; 
 import JurnalBKScreen from '../screens/JurnalBKScreen';
-import RiwayatLayananBKScreen from '../screens/RiwayatLayananBKScreen'; // <-- Screen Baru Ditambahkan
+import RiwayatLayananBKScreen from '../screens/RiwayatLayananBKScreen';
+import PantauGuruScreen from '../screens/PantauGuruScreen'; // <-- Screen Baru Pantau Hambatan Guru
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -72,7 +73,6 @@ function CustomTabBar({ state, navigation }) {
                   style={styles.menuCard}
                   onPress={() => handleMenuPress(item)}
                 >
-                  {/* Menggunakan warna dinamis berdasarkan config */}
                   <View style={[styles.iconContainer, { backgroundColor: item.bgColor || '#EFF6FF' }]}>
                     <Ionicons name={item.icon || 'grid-outline'} size={22} color={item.color || '#2563EB'} />
                   </View>
@@ -203,13 +203,22 @@ function MainTabNavigator() {
           headerTitleAlign: 'center',
         }}
       />
-      {/* SCREEN BARU DITAMBAHKAN DI SINI */}
       <Tab.Screen
         name="RiwayatLayanan" 
         component={RiwayatLayananBKScreen}
         options={{
           headerShown: true,
           title: 'Riwayat Layanan BK',
+          headerTitleAlign: 'center',
+        }}
+      />
+      {/* SCREEN PANTAU HAMBATAN GURU */}
+      <Tab.Screen
+        name="PantauJurnalGuru" 
+        component={PantauGuruScreen}
+        options={{
+          headerShown: true,
+          title: 'Pantau Jurnal Guru',
           headerTitleAlign: 'center',
         }}
       />

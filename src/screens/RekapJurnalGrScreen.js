@@ -10,7 +10,8 @@ import {
   Image,
   Alert,
   ActivityIndicator,
-  Switch
+  Switch,
+  Platform
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Print from 'expo-print';
@@ -62,15 +63,15 @@ const convertUriToBase64 = async (uri) => {
     return cleanUri;
   }
 
-  // 2. File Lokal (file://, content://, atau path direktori)
-  if (cleanUri.startsWith('file://') || cleanUri.startsWith('content://') || cleanUri.startsWith('/')) {
+  // 2. File Lokal Native (file://, content://) - khusus Android/iOS
+  if (Platform.OS !== 'web' && (cleanUri.startsWith('file://') || cleanUri.startsWith('content://'))) {
     try {
       const base64 = await FileSystem.readAsStringAsync(cleanUri, {
         encoding: FileSystem.EncodingType.Base64,
       });
       return `data:image/jpeg;base64,${base64}`;
     } catch (err) {
-      console.log('Gagal membaca file lokal:', err);
+      console.log('Gagal membaca file lokal native:', err);
       return null;
     }
   }
@@ -84,8 +85,8 @@ const convertUriToBase64 = async (uri) => {
     }
   }
 
-  // 4. Link Gambar Online (http / https) -> Gunakan fetch & FileReader
-  if (targetUrl.startsWith('http://') || targetUrl.startsWith('https://')) {
+  // 4. Link Gambar Online / Web Blob / Data URI
+  if (targetUrl.startsWith('http://') || targetUrl.startsWith('https://') || targetUrl.startsWith('blob:')) {
     try {
       const response = await fetch(targetUrl);
       const blob = await response.blob();
@@ -97,7 +98,7 @@ const convertUriToBase64 = async (uri) => {
         reader.readAsDataURL(blob);
       });
     } catch (err) {
-      console.log('Gagal konversi gambar online:', err);
+      console.log('Gagal konversi gambar web/online:', err);
       return targetUrl;
     }
   }
@@ -110,19 +111,16 @@ const parseMonthFromWaktu = (waktuStr) => {
   if (!waktuStr) return null;
   const str = waktuStr.toString().trim();
 
-  // 1. Format YYYY-MM-DD atau YYYY/MM/DD
   if (/^\d{4}[-/]\d{1,2}[-/]\d{1,2}/.test(str)) {
     const parts = str.split(' ')[0].split(/[-/]/);
     return parseInt(parts[1], 10) - 1;
   }
 
-  // 2. Format DD-MM-YYYY atau DD/MM/YYYY
   if (/^\d{1,2}[-/]\d{1,2}[-/]\d{4}/.test(str)) {
     const parts = str.split(' ')[0].split(/[-/]/);
     return parseInt(parts[1], 10) - 1;
   }
 
-  // 3. Nama Bulan Bahasa Indonesia (misal: "15 September 2024")
   const namaBulanIndo = [
     'januari', 'februari', 'maret', 'april', 'mei', 'juni',
     'juli', 'agustus', 'september', 'oktober', 'november', 'desember'
@@ -134,7 +132,6 @@ const parseMonthFromWaktu = (waktuStr) => {
     }
   }
 
-  // 4. Fallback ke parser bawaan JS
   const d = new Date(str.replace(/-/g, '/'));
   return isNaN(d.getTime()) ? null : d.getMonth();
 };
@@ -169,15 +166,15 @@ export default function RekapJurnalGrScreen() {
 
   // Modal Cetak States
   const [modalCetakVisible, setModalCetakVisible] = useState(false);
-  const [jenisCetak, setJenisCetak] = useState('Bulanan'); // 'Bulanan' | 'Semester'
-  const [bulanPilihan, setBulanPilihan] = useState(new Date().getMonth()); // 0-11
-  const [semesterPilihan, setSemesterPilihan] = useState('Ganjil'); // 'Ganjil' | 'Genap'
+  const [jenisCetak, setJenisCetak] = useState('Bulanan');
+  const [bulanPilihan, setBulanPilihan] = useState(new Date().getMonth());
+  const [semesterPilihan, setSemesterPilihan] = useState('Ganjil');
   const [pakaiFoto, setPakaiFoto] = useState(true);
   const [generatingPdf, setGeneratingPdf] = useState(false);
 
   // Custom Dropdown Modal States
   const [selectModalVisible, setSelectModalVisible] = useState(false);
-  const [selectModalType, setSelectModalType] = useState(''); // 'STATUS_TINJAUAN', 'JENIS_CETAK', 'BULAN_CETAK', 'SEMESTER_CETAK'
+  const [selectModalType, setSelectModalType] = useState('');
 
   useEffect(() => {
     fetchDataJurnal();
@@ -211,11 +208,19 @@ export default function RekapJurnalGrScreen() {
 
         setJurnalData(formattedData);
       } else {
-        Alert.alert('Informasi', res?.message || 'Data jurnal tidak ditemukan.');
+        if (Platform.OS === 'web') {
+          window.alert(res?.message || 'Data jurnal tidak ditemukan.');
+        } else {
+          Alert.alert('Informasi', res?.message || 'Data jurnal tidak ditemukan.');
+        }
       }
     } catch (error) {
       console.log('Error fetch jurnal:', error);
-      Alert.alert('Error', 'Gagal memuat data jurnal.');
+      if (Platform.OS === 'web') {
+        window.alert('Gagal memuat data jurnal.');
+      } else {
+        Alert.alert('Error', 'Gagal memuat data jurnal.');
+      }
     } finally {
       setLoading(false);
     }
@@ -239,36 +244,54 @@ export default function RekapJurnalGrScreen() {
     setFilteredData(result);
   };
 
-  const handleDelete = (id) => {
-    Alert.alert(
-      'Konfirmasi Hapus',
-      'Apakah Anda yakin ingin menghapus jurnal ini? Data absensi siswa terkait juga akan dihapus.',
-      [
-        { text: 'Batal', style: 'cancel' },
-        {
-          text: 'Hapus',
-          style: 'destructive',
-          onPress: async () => {
-            setLoading(true);
-            try {
-              const res = await callBackendAPI('deleteJurnal', { idJurnal: id });
+  const executeDelete = async (id) => {
+    setLoading(true);
+    try {
+      const res = await callBackendAPI('deleteJurnal', { idJurnal: id });
 
-              if (res && (res.success || res.status === 'success')) {
-                setJurnalData(prev => prev.filter(item => item.id !== id));
-                Alert.alert('Berhasil', 'Jurnal dan data presensi berhasil dihapus.');
-              } else {
-                Alert.alert('Gagal', res?.message || 'Gagal menghapus jurnal di server.');
-              }
-            } catch (error) {
-              console.log('Error hapus jurnal:', error);
-              Alert.alert('Error', 'Terjadi kesalahan koneksi saat menghapus data.');
-            } finally {
-              setLoading(false);
-            }
-          }
+      if (res && (res.success || res.status === 'success')) {
+        setJurnalData(prev => prev.filter(item => item.id !== id));
+        if (Platform.OS === 'web') {
+          window.alert('Jurnal dan data presensi berhasil dihapus.');
+        } else {
+          Alert.alert('Berhasil', 'Jurnal dan data presensi berhasil dihapus.');
         }
-      ]
-    );
+      } else {
+        if (Platform.OS === 'web') {
+          window.alert(res?.message || 'Gagal menghapus jurnal di server.');
+        } else {
+          Alert.alert('Gagal', res?.message || 'Gagal menghapus jurnal di server.');
+        }
+      }
+    } catch (error) {
+      console.log('Error hapus jurnal:', error);
+      if (Platform.OS === 'web') {
+        window.alert('Terjadi kesalahan koneksi saat menghapus data.');
+      } else {
+        Alert.alert('Error', 'Terjadi kesalahan koneksi saat menghapus data.');
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDelete = (id) => {
+    const pesanKonfirmasi = 'Apakah Anda yakin ingin menghapus jurnal ini? Data absensi siswa terkait juga akan dihapus.';
+
+    if (Platform.OS === 'web') {
+      if (window.confirm(pesanKonfirmasi)) {
+        executeDelete(id);
+      }
+    } else {
+      Alert.alert(
+        'Konfirmasi Hapus',
+        pesanKonfirmasi,
+        [
+          { text: 'Batal', style: 'cancel' },
+          { text: 'Hapus', style: 'destructive', onPress: () => executeDelete(id) }
+        ]
+      );
+    }
   };
 
   const handleStatusChange = (index, newStatus) => {
@@ -297,21 +320,32 @@ export default function RekapJurnalGrScreen() {
               : item
           )
         );
-        Alert.alert('Berhasil', 'Data presensi siswa berhasil diperbarui.');
+        if (Platform.OS === 'web') {
+          window.alert('Data presensi siswa berhasil diperbarui.');
+        } else {
+          Alert.alert('Berhasil', 'Data presensi siswa berhasil diperbarui.');
+        }
         setIsEditMode(false);
         setModalAbsenVisible(false);
       } else {
-        Alert.alert('Gagal', res?.message || 'Gagal menyimpan perubahan presensi.');
+        if (Platform.OS === 'web') {
+          window.alert(res?.message || 'Gagal menyimpan perubahan presensi.');
+        } else {
+          Alert.alert('Gagal', res?.message || 'Gagal menyimpan perubahan presensi.');
+        }
       }
     } catch (error) {
       console.log('Error update absensi:', error);
-      Alert.alert('Error', 'Terjadi kesalahan koneksi saat menyimpan data.');
+      if (Platform.OS === 'web') {
+        window.alert('Terjadi kesalahan koneksi saat menyimpan data.');
+      } else {
+        Alert.alert('Error', 'Terjadi kesalahan koneksi saat menyimpan data.');
+      }
     } finally {
       setSavingAbsen(false);
     }
   };
 
-  // Handler Dropdown Custom Modal
   const openSelectModal = (type) => {
     setSelectModalType(type);
     setSelectModalVisible(true);
@@ -350,7 +384,65 @@ export default function RekapJurnalGrScreen() {
       : 'Semester Genap (Jan - Juni)';
   };
 
-  // --- FUNGSI CETAK PDF & PREVIEW ---
+  // --- ENGINE CETAK KHUSUS NATIVE & PWA WEB ---
+  const printCrossPlatform = async (htmlContent) => {
+    if (Platform.OS === 'web') {
+      return new Promise((resolve, reject) => {
+        try {
+          const iframe = document.createElement('iframe');
+          iframe.style.position = 'fixed';
+          iframe.style.right = '0';
+          iframe.style.bottom = '0';
+          iframe.style.width = '0';
+          iframe.style.height = '0';
+          iframe.style.border = '0';
+          document.body.appendChild(iframe);
+
+          const doc = iframe.contentWindow.document;
+          doc.open();
+          doc.write(htmlContent);
+          doc.close();
+
+          const images = doc.querySelectorAll('img');
+          let loadedCount = 0;
+          const totalImages = images.length;
+
+          const triggerPrint = () => {
+            setTimeout(() => {
+              iframe.contentWindow.focus();
+              iframe.contentWindow.print();
+              setTimeout(() => {
+                document.body.removeChild(iframe);
+                resolve();
+              }, 500);
+            }, 300);
+          };
+
+          if (totalImages === 0) {
+            triggerPrint();
+          } else {
+            images.forEach((img) => {
+              if (img.complete) {
+                loadedCount++;
+                if (loadedCount === totalImages) triggerPrint();
+              } else {
+                img.onload = img.onerror = () => {
+                  loadedCount++;
+                  if (loadedCount === totalImages) triggerPrint();
+                };
+              }
+            });
+          }
+        } catch (e) {
+          console.error("Gagal mencetak di Web PWA:", e);
+          reject(e);
+        }
+      });
+    } else {
+      return await Print.printAsync({ html: htmlContent });
+    }
+  };
+
   const handleProsesCetakPdf = async () => {
     setGeneratingPdf(true);
 
@@ -369,7 +461,11 @@ export default function RekapJurnalGrScreen() {
       });
 
       if (dataTerfilter.length === 0) {
-        Alert.alert('Informasi', 'Tidak ada data jurnal pada periode yang dipilih.');
+        if (Platform.OS === 'web') {
+          window.alert('Tidak ada data jurnal pada periode yang dipilih.');
+        } else {
+          Alert.alert('Informasi', 'Tidak ada data jurnal pada periode yang dipilih.');
+        }
         setGeneratingPdf(false);
         return;
       }
@@ -404,9 +500,9 @@ export default function RekapJurnalGrScreen() {
 
           if (base64Img) {
             lampiranHtml += `
-              <div style="margin-bottom: 20px; page-break-inside: avoid; text-align: center; border: 1px solid #ddd; padding: 10px; border-radius: 6px;">
-                <p style="margin: 0 0 8px 0; font-weight: bold;">[Jurnal #${index + 1}] ${item.kelas} - ${item.mapel} (${item.waktu})</p>
-                <img src="${base64Img}" style="max-width: 100%; max-height: 280px; border-radius: 4px; object-fit: contain;" />
+              <div style="margin-bottom: 20px; page-break-inside: avoid; text-align: center; border: 1px solid #cbd5e1; padding: 10px; border-radius: 6px; background: #fafafa;">
+                <p style="margin: 0 0 8px 0; font-weight: bold; color: #1e293b;">[Jurnal #${index + 1}] ${item.kelas} - ${item.mapel} (${item.waktu})</p>
+                <img src="${base64Img}" style="max-width: 100%; max-height: 280px; border-radius: 4px; object-fit: contain; margin: 0 auto; display: block;" />
               </div>
             `;
           }
@@ -418,16 +514,25 @@ export default function RekapJurnalGrScreen() {
         <html>
           <head>
             <meta charset="utf-8">
-            <title>Jurnal Mengajar Guru</title>
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Rekap Jurnal Mengajar</title>
             <style>
-              body { font-family: Arial, sans-serif; padding: 20px; color: #333; font-size: 12px; }
+              @page {
+                size: A4 portrait;
+                margin: 12mm 15mm;
+              }
+              @media print {
+                body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+              }
+              body { font-family: 'Segoe UI', Arial, sans-serif; padding: 0; margin: 0; color: #333; font-size: 11px; line-height: 1.4; }
               .header { text-align: center; margin-bottom: 20px; border-bottom: 2px solid #333; padding-bottom: 10px; }
-              .header h2 { margin: 0; font-size: 18px; text-transform: uppercase; }
-              .header p { margin: 4px 0 0 0; font-size: 13px; }
-              table { width: 100%; border-collapse: collapse; margin-top: 15px; }
-              th, td { border: 1px solid #444; padding: 8px; text-align: left; vertical-align: top; }
-              th { background-color: #f2f2f2; text-align: center; font-weight: bold; }
-              .page-break { page-break-before: always; }
+              .header h2 { margin: 0; font-size: 16px; text-transform: uppercase; color: #0f172a; }
+              .header p { margin: 4px 0 0 0; font-size: 12px; color: #475569; }
+              table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+              tr { page-break-inside: avoid; }
+              th, td { border: 1px solid #475569; padding: 7px 8px; text-align: left; vertical-align: top; word-wrap: break-word; }
+              th { background-color: #f1f5f9 !important; text-align: center; font-weight: bold; color: #0f172a; }
+              .page-break { page-break-before: always; margin-top: 20px; }
             </style>
           </head>
           <body>
@@ -441,8 +546,8 @@ export default function RekapJurnalGrScreen() {
                 <tr>
                   <th style="width: 5%;">No</th>
                   <th style="width: 15%;">Tanggal</th>
-                  <th style="width: 12%;">Kelas</th>
-                  <th style="width: 43%;">Materi & Kegiatan</th>
+                  <th style="width: 13%;">Kelas</th>
+                  <th style="width: 42%;">Materi & Kegiatan</th>
                   <th style="width: 25%;">Hambatan / Kendala</th>
                 </tr>
               </thead>
@@ -453,7 +558,7 @@ export default function RekapJurnalGrScreen() {
 
             ${pakaiFoto && lampiranHtml ? `
               <div class="page-break"></div>
-              <h3 style="text-align: center; margin-bottom: 15px; border-bottom: 1px solid #ccc; padding-bottom: 5px;">LAMPIRAN DOKUMENTASI KEGIATAN</h3>
+              <h3 style="text-align: center; margin-bottom: 15px; border-bottom: 1px solid #ccc; padding-bottom: 5px; color: #0f172a;">LAMPIRAN DOKUMENTASI KEGIATAN</h3>
               ${lampiranHtml}
             ` : ''}
           </body>
@@ -461,11 +566,15 @@ export default function RekapJurnalGrScreen() {
       `;
 
       setModalCetakVisible(false);
-      await Print.printAsync({ html: htmlContent });
+      await printCrossPlatform(htmlContent);
 
     } catch (error) {
       console.log('Error Cetak PDF:', error);
-      Alert.alert('Error', 'Gagal memproses file PDF.');
+      if (Platform.OS === 'web') {
+        window.alert('Gagal memproses file PDF.');
+      } else {
+        Alert.alert('Error', 'Gagal memproses file PDF.');
+      }
     } finally {
       setGeneratingPdf(false);
     }
@@ -688,11 +797,10 @@ export default function RekapJurnalGrScreen() {
     </Modal>
   );
 
-  // --- RENDER MODAL PILIHAN CETAK ---
   const renderModalCetak = () => (
     <Modal visible={modalCetakVisible} transparent animationType="fade">
       <View style={styles.modalBackground}>
-        <View style={[styles.modalContainer, { width: '85%' }]}>
+        <View style={[styles.modalContainer, styles.modalCetakWidth]}>
           <View style={styles.modalHeader}>
             <Text style={styles.modalTitle}>Cetak PDF Jurnal</Text>
             <TouchableOpacity onPress={() => setModalCetakVisible(false)}>
@@ -701,7 +809,6 @@ export default function RekapJurnalGrScreen() {
           </View>
 
           <View style={styles.modalContent}>
-            {/* Pilihan Jenis Periode */}
             <Text style={styles.labelField}>Jenis Periode:</Text>
             <TouchableOpacity
               style={styles.selectBox}
@@ -711,7 +818,6 @@ export default function RekapJurnalGrScreen() {
               <Ionicons name="chevron-down" size={16} color="#64748B" />
             </TouchableOpacity>
 
-            {/* Opsi Berdasarkan Jenis Periode */}
             {jenisCetak === 'Bulanan' ? (
               <View style={{ marginTop: 10 }}>
                 <Text style={styles.labelField}>Pilih Bulan:</Text>
@@ -736,7 +842,6 @@ export default function RekapJurnalGrScreen() {
               </View>
             )}
 
-            {/* Switch Lampiran Foto */}
             <View style={styles.switchRow}>
               <Text style={styles.labelField}>Sertakan Lampiran Foto:</Text>
               <Switch
@@ -770,7 +875,6 @@ export default function RekapJurnalGrScreen() {
     </Modal>
   );
 
-  // --- RENDER MODAL SELECTION DROPDOWN CUSTOM ---
   const renderGenericSelectModal = () => {
     let title = '';
     let options = [];
@@ -1010,6 +1114,7 @@ const styles = StyleSheet.create({
 
   modalBackground: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' },
   modalContainer: { width: '90%', maxHeight: '80%', backgroundColor: '#FFF', borderRadius: 12, overflow: 'hidden' },
+  modalCetakWidth: { width: Platform.OS === 'web' ? '400px' : '85%' },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 12, borderBottomWidth: 1, borderColor: '#E2E8F0', backgroundColor: '#F8FAFC' },
   modalTitle: { fontSize: 15, fontWeight: 'bold', color: '#0F172A', textAlign: 'center' },
   btnHeaderEdit: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 4, paddingHorizontal: 8, backgroundColor: '#EFF6FF', borderRadius: 6, borderWidth: 1, borderColor: '#BFDBFE' },
@@ -1085,7 +1190,6 @@ const styles = StyleSheet.create({
   btnProcessPrint: { backgroundColor: '#16A34A', paddingVertical: 10, borderRadius: 8, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 8 },
   btnProcessPrintText: { color: '#FFF', fontWeight: 'bold', fontSize: 14 },
 
-  // Styles Custom Modal Selection
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(15, 23, 42, 0.4)',
@@ -1094,7 +1198,7 @@ const styles = StyleSheet.create({
     padding: 24,
   },
   selectModalContent: {
-    width: '100%',
+    width: Platform.OS === 'web' ? '360px' : '100%',
     backgroundColor: '#FFF',
     borderRadius: 12,
     padding: 16,

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -11,6 +11,7 @@ import {
   Image,
   Modal,
   FlatList,
+  Platform,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
@@ -18,6 +19,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { callBackendAPI } from '../api/client';
 
 export default function JurnalScreen({ route, navigation }) {
+  const scrollViewRef = useRef(null);
+
   // State Form
   const [rombel, setRombel] = useState('');
   const [mapel, setMapel] = useState('');
@@ -76,7 +79,6 @@ export default function JurnalScreen({ route, navigation }) {
     try {
       const res = await callBackendAPI('getFormData');
 
-      // Peningkatan deteksi array rombel dan mapel agar tidak mudah gagal
       const rawRombel = res?.data?.rombel || res?.data?.kelas || res?.kelas || res?.rombel || [];
       const rawMapel = res?.data?.mapel || res?.mapel || [];
 
@@ -162,25 +164,44 @@ export default function JurnalScreen({ route, navigation }) {
 
   const ambilFoto = async () => {
     try {
-      const permissionResult = await ImagePicker.requestCameraPermissionsAsync();
-      if (!permissionResult.granted) {
-        Alert.alert('Izin Ditolak', 'Aplikasi membutuhkan izin akses kamera.');
-        return;
-      }
+      if (Platform.OS === 'web') {
+        const result = await ImagePicker.launchImageLibraryAsync({
+          mediaTypes: ImagePicker.MediaTypeOptions.Images,
+          allowsEditing: true,
+          aspect: [4, 3],
+          quality: 0.3,
+          base64: true,
+        });
 
-      const result = await ImagePicker.launchCameraAsync({
-        allowsEditing: true,
-        aspect: [4, 3],
-        quality: 0.2,
-        base64: true,
-      });
+        if (!result.canceled && result.assets[0]) {
+          setFoto(result.assets[0].uri);
+          setFotoBase64(
+            result.assets[0].base64
+              ? `data:image/jpeg;base64,${result.assets[0].base64}`
+              : result.assets[0].uri
+          );
+        }
+      } else {
+        const permissionResult = await ImagePicker.requestCameraPermissionsAsync();
+        if (!permissionResult.granted) {
+          Alert.alert('Izin Ditolak', 'Aplikasi membutuhkan izin akses kamera.');
+          return;
+        }
 
-      if (!result.canceled && result.assets[0]) {
-        setFoto(result.assets[0].uri);
-        setFotoBase64(`data:image/jpeg;base64,${result.assets[0].base64}`);
+        const result = await ImagePicker.launchCameraAsync({
+          allowsEditing: true,
+          aspect: [4, 3],
+          quality: 0.2,
+          base64: true,
+        });
+
+        if (!result.canceled && result.assets[0]) {
+          setFoto(result.assets[0].uri);
+          setFotoBase64(`data:image/jpeg;base64,${result.assets[0].base64}`);
+        }
       }
     } catch (error) {
-      Alert.alert('Gagal', 'Terjadi kesalahan saat mengambil foto.');
+      Alert.alert('Gagal', 'Terjadi kesalahan saat memilih atau mengambil foto.');
     }
   };
 
@@ -218,7 +239,23 @@ export default function JurnalScreen({ route, navigation }) {
 
       if (res && (res.status === 'success' || res.success)) {
         Alert.alert('Berhasil', 'Jurnal pembelajaran berhasil disimpan', [
-          { text: 'OK', onPress: () => navigation.goBack() },
+          { 
+            text: 'OK', 
+            onPress: () => {
+              // RESET HANYA UNTUK KELAS, PRESENSI, DAN FOTO
+              setRombel('');
+              setWaliKelas('');
+              setSiswa([]);
+              setPresensi({});
+              setFoto(null);
+              setFotoBase64('');
+              
+              // Scroll ke atas setelah reset form
+              if (scrollViewRef.current) {
+                scrollViewRef.current.scrollTo({ y: 0, animated: true });
+              }
+            } 
+          },
         ]);
       } else {
         Alert.alert('Gagal', res?.message || 'Gagal menyimpan jurnal');
@@ -252,7 +289,11 @@ export default function JurnalScreen({ route, navigation }) {
   };
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer}>
+    <ScrollView 
+      ref={scrollViewRef} 
+      style={styles.container} 
+      contentContainerStyle={styles.contentContainer}
+    >
       
       {/* HEADER DENGAN TOMBOL REFRESH */}
       <View style={styles.headerTitleBox}>
@@ -419,7 +460,7 @@ export default function JurnalScreen({ route, navigation }) {
         <TouchableOpacity style={styles.btnFoto} onPress={ambilFoto}>
           <Ionicons name="camera-outline" size={20} color="#2563EB" />
           <Text style={styles.btnFotoText}>
-            {foto ? 'Ganti Foto Pembelajaran' : 'Ambil Foto Pembelajaran'}
+            {foto ? 'Ganti Foto Pembelajaran' : 'Unggah / Ambil Foto Pembelajaran'}
           </Text>
         </TouchableOpacity>
 
@@ -501,9 +542,14 @@ export default function JurnalScreen({ route, navigation }) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F8FAFC' },
-  contentContainer: { padding: 20, paddingBottom: 110 },
+  contentContainer: { 
+    padding: 20, 
+    paddingBottom: 110,
+    maxWidth: 600, 
+    width: '100%',
+    alignSelf: 'center', 
+  },
   
-  // MODIFIKASI HEADER: Menambahkan Flex Row agar tulisan dan icon sejajar
   headerTitleBox: { 
     backgroundColor: '#FFF', 
     borderWidth: 1.5, 
@@ -560,8 +606,22 @@ const styles = StyleSheet.create({
   buttonDisabled: { backgroundColor: '#93C5FD' },
   buttonText: { color: '#FFF', fontWeight: 'bold', fontSize: 16 },
 
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: 20 },
-  modalContent: { backgroundColor: '#FFF', borderRadius: 12, padding: 20, maxHeight: '80%' },
+  modalOverlay: { 
+    flex: 1, 
+    backgroundColor: 'rgba(0,0,0,0.5)', 
+    justifyContent: 'center', 
+    alignItems: 'center', 
+    padding: 20 
+  },
+  modalContent: { 
+    backgroundColor: '#FFF', 
+    borderRadius: 12, 
+    padding: 20, 
+    maxHeight: '80%', 
+    width: '100%', 
+    maxWidth: 500,
+    alignSelf: 'center',
+  },
   modalTitle: { fontSize: 16, fontWeight: 'bold', marginBottom: 12, color: '#0F172A' },
   modalItem: { paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#F1F5F9' },
   modalItemText: { fontSize: 14, color: '#334155' },

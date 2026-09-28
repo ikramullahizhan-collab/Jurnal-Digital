@@ -11,7 +11,6 @@ export const ROLE_MENUS = {
     { id: 'jurnal_bk', title: 'Jurnal Layanan BK', icon: 'heart', screen: 'JurnalBK', color: '#7C3AED', bgColor: '#F5F3FF' },
     { id: 'riwayat_layanan', title: 'Riwayat Layanan', icon: 'time', screen: 'RiwayatLayanan', color: '#7C3AED', bgColor: '#F5F3FF' },
     { id: 'pantau_guru', title: 'Pantau Jurnal Guru', icon: 'eye', screen: 'PantauJurnalGuru', color: '#7C3AED', bgColor: '#F5F3FF' },
-    { id: 'cetak_laporan', title: 'Cetak Laporan', icon: 'print', screen: 'CetakLaporanBK', color: '#7C3AED', bgColor: '#F5F3FF' },
   ],
   Kepsek: [
     { id: 'home', title: 'Home', icon: 'home', screen: 'Dashboard', color: '#D97706', bgColor: '#FFFBEB' },

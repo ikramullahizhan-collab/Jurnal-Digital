@@ -9,14 +9,33 @@ import {
   TouchableOpacity,
   Modal,
   FlatList,
+  Platform
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Print from 'expo-print'; 
 import { callBackendAPI } from '../api/client';
 
-const BULAN_OPTIONS = [
+const SEMESTER_OPTIONS = [
+  { label: 'Ganjil', value: 'Ganjil' },
+  { label: 'Genap', value: 'Genap' }
+];
+
+const BULAN_GANJIL = [
   { label: 'Semua Bulan', value: 'Semua' },
+  { label: 'Juli', value: '07' }, { label: 'Agustus', value: '08' },
+  { label: 'September', value: '09' }, { label: 'Oktober', value: '10' },
+  { label: 'November', value: '11' }, { label: 'Desember', value: '12' },
+];
+
+const BULAN_GENAP = [
+  { label: 'Semua Bulan', value: 'Semua' },
+  { label: 'Januari', value: '01' }, { label: 'Februari', value: '02' },
+  { label: 'Maret', value: '03' }, { label: 'April', value: '04' },
+  { label: 'Mei', value: '05' }, { label: 'Juni', value: '06' },
+];
+
+const PRINT_BULAN_OPTIONS = [
   { label: 'Januari', value: '01' }, { label: 'Februari', value: '02' },
   { label: 'Maret', value: '03' }, { label: 'April', value: '04' },
   { label: 'Mei', value: '05' }, { label: 'Juni', value: '06' },
@@ -25,15 +44,11 @@ const BULAN_OPTIONS = [
   { label: 'November', value: '11' }, { label: 'Desember', value: '12' },
 ];
 
-const PRINT_BULAN_OPTIONS = BULAN_OPTIONS.filter(b => b.value !== 'Semua');
 const MODE_CETAK_OPTIONS = [
   { label: 'Per Bulan (Rentang)', value: 'Bulan' },
   { label: 'Per Semester', value: 'Semester' }
 ];
-const SEMESTER_OPTIONS = [
-  { label: 'Ganjil', value: 'Ganjil' },
-  { label: 'Genap', value: 'Genap' }
-];
+
 const PAPER_OPTIONS = [
   { label: 'A4', value: 'A4' },
   { label: 'F4 (Folio)', value: 'F4' }
@@ -45,33 +60,53 @@ export default function AbsenKlsScreen() {
   const [totalHariEfektif, setTotalHariEfektif] = useState(0);
   const [infoKelas, setInfoKelas] = useState({ namaKelas: '-', namaWali: '-', nipWali: '-' });
 
-  const [selectedBulan, setSelectedBulan] = useState(BULAN_OPTIONS[0]);
-  const [showBulanModal, setShowBulanModal] = useState(false);
+  const currentMonth = new Date().getMonth() + 1;
+  const initialSemester = currentMonth >= 7 ? SEMESTER_OPTIONS[0] : SEMESTER_OPTIONS[1];
+  const initialMonths = currentMonth >= 7 ? BULAN_GANJIL : BULAN_GENAP;
+
+  const [selectedSemester, setSelectedSemester] = useState(initialSemester);
+  const [availableMonths, setAvailableMonths] = useState(initialMonths);
+  const [selectedBulan, setSelectedBulan] = useState(initialMonths[0]);
 
   const [detailModalVisible, setDetailModalVisible] = useState(false);
   const [selectedStudentDetail, setSelectedStudentDetail] = useState(null);
 
-  // STATE UNTUK FITUR CETAK
   const [showPrintModal, setShowPrintModal] = useState(false);
   const [printMode, setPrintMode] = useState(MODE_CETAK_OPTIONS[0]);
   const [startMonth, setStartMonth] = useState(PRINT_BULAN_OPTIONS[0]);
   const [endMonth, setEndMonth] = useState(PRINT_BULAN_OPTIONS[5]);
-  const [selectedSemester, setSelectedSemester] = useState(SEMESTER_OPTIONS[0]);
+  const [printSemester, setPrintSemester] = useState(SEMESTER_OPTIONS[0]);
   const [selectedPaper, setSelectedPaper] = useState(PAPER_OPTIONS[0]);
 
-  // STATE UNTUK DROPDOWN REUSABLE
   const [dropdownVisible, setDropdownVisible] = useState(false);
   const [dropdownData, setDropdownData] = useState([]);
   const [dropdownTitle, setDropdownTitle] = useState('');
   const [dropdownOnSelect, setDropdownOnSelect] = useState(null);
 
   useEffect(() => {
-    fetchDataAbsensi();
-  }, [selectedBulan]);
+    fetchDataAbsensi(selectedSemester, selectedBulan);
+  }, []);
 
-  const fetchDataAbsensi = async () => {
+  const handleSemesterChange = (item) => {
+    setSelectedSemester(item);
+    const newMonths = item.value === 'Ganjil' ? BULAN_GANJIL : BULAN_GENAP;
+    setAvailableMonths(newMonths);
+    const defaultBulan = newMonths[0];
+    setSelectedBulan(defaultBulan);
+    fetchDataAbsensi(item, defaultBulan);
+  };
+
+  const handleBulanChange = (item) => {
+    setSelectedBulan(item);
+    fetchDataAbsensi(selectedSemester, item);
+  };
+
+  const fetchDataAbsensi = async (semesterObj = selectedSemester, bulanObj = selectedBulan) => {
     try {
       setLoading(true);
+      setRekapSiswa([]);
+      setTotalHariEfektif(0);
+
       const sessionString = await AsyncStorage.getItem('userSession');
       const userData = sessionString ? JSON.parse(sessionString) : null;
       const idKelasWali = userData?.idKelas || userData?.idKelasWali || userData?.data?.idKelas || '';
@@ -82,7 +117,17 @@ export default function AbsenKlsScreen() {
         return;
       }
 
-      const payload = { idKelasWali, bulan: selectedBulan.value };
+      const monthsInSemester = semesterObj.value === 'Ganjil' 
+        ? ['07', '08', '09', '10', '11', '12'] 
+        : ['01', '02', '03', '04', '05', '06'];
+
+      const payload = { 
+        idKelasWali, 
+        bulan: bulanObj.value,
+        semester: semesterObj.value,
+        bulanList: bulanObj.value === 'Semua' ? monthsInSemester : [bulanObj.value]
+      };
+
       const response = await callBackendAPI('getAbsensiKelasWali', payload).catch(() => null);
 
       if (response?.success) {
@@ -90,9 +135,13 @@ export default function AbsenKlsScreen() {
         setTotalHariEfektif(response.totalHariEfektif || 0);
         setInfoKelas(response.infoKelas || { namaKelas: '-', namaWali: '-', nipWali: '-' }); 
       } else {
+        setRekapSiswa([]);
+        setTotalHariEfektif(0);
         Alert.alert('Gagal', response?.message || 'Gagal mengambil data absensi.');
       }
     } catch (error) {
+      setRekapSiswa([]);
+      setTotalHariEfektif(0);
       Alert.alert('Error', 'Kesalahan jaringan saat memuat absensi.');
     } finally {
       setLoading(false);
@@ -104,7 +153,6 @@ export default function AbsenKlsScreen() {
     setDetailModalVisible(true);
   };
 
-  // HELPER UNTUK MEMBUKA CUSTOM DROPDOWN
   const openCustomDropdown = (title, data, onSelectCallback) => {
     setDropdownTitle(title);
     setDropdownData(data);
@@ -112,7 +160,6 @@ export default function AbsenKlsScreen() {
     setDropdownVisible(true);
   };
 
-  // FUNGSI EKSEKUSI CETAK
   const handleExecutePrint = async () => {
     if (rekapSiswa.length === 0) {
       Alert.alert('Informasi', 'Tidak ada data untuk dicetak saat ini.');
@@ -122,14 +169,14 @@ export default function AbsenKlsScreen() {
     try {
       let periodeText = printMode.value === 'Bulan' 
         ? `Periode: ${startMonth.label} s.d ${endMonth.label}`
-        : `Semester: ${selectedSemester.label}`;
+        : `Semester: ${printSemester.label}`;
 
       const bulanIndo = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
       const dateNow = new Date();
       const tanggalCetak = `${dateNow.getDate()} ${bulanIndo[dateNow.getMonth()]} ${dateNow.getFullYear()}`;
 
       const namaKelasFormat = infoKelas.namaKelas.replace(/\s+/g, '_');
-      const keteranganWaktu = printMode.value === 'Bulan' ? `${startMonth.label}_sd_${endMonth.label}` : selectedSemester.label;
+      const keteranganWaktu = printMode.value === 'Bulan' ? `${startMonth.label}_sd_${endMonth.label}` : printSemester.label;
       
       const documentTitle = `Absen_${namaKelasFormat}_${keteranganWaktu}`;
       const safeDocumentTitle = documentTitle.replace(/[^a-zA-Z0-9_-]/g, '');
@@ -199,14 +246,30 @@ export default function AbsenKlsScreen() {
               <p style="margin: 0;">NIP. ${infoKelas.nipWali}</p>
             </div>
           </div>
+          <script>
+            // Memicu print otomatis ketika DOM di web selesai dimuat
+            window.onload = function() {
+              window.print();
+            };
+          </script>
         </body>
         </html>
       `;
 
-      await Print.printAsync({ 
-        html: htmlContent 
-      });
-      
+      if (Platform.OS === 'web') {
+        // Mode PWA / Web: Buka dokumen di tab baru untuk dicetak browser
+        const printWindow = window.open('', '_blank');
+        if (printWindow) {
+          printWindow.document.write(htmlContent);
+          printWindow.document.close();
+        } else {
+          Alert.alert('Pop-up Diblokir', 'Harap izinkan pop-up pada browser Anda untuk mencetak dokumen.');
+        }
+      } else {
+        // Mode Native (iOS/Android)
+        await Print.printAsync({ html: htmlContent });
+      }
+
       setShowPrintModal(false);
     } catch (error) {
       Alert.alert('Gagal', 'Kesalahan cetak: ' + error.message);
@@ -290,26 +353,36 @@ export default function AbsenKlsScreen() {
 
   return (
     <View style={styles.container}>
-      {/* HEADER SECTION */}
+      {/* FILTER SECTION & TOMBOL CETAK */}
       <View style={styles.headerBox}>
-        <TouchableOpacity style={styles.dropdownBtn} onPress={() => setShowBulanModal(true)}>
-          <Ionicons name="calendar-outline" size={18} color="#2563EB" />
-          <Text style={styles.dropdownText}>{selectedBulan.label}</Text>
-          <Ionicons name="chevron-down" size={18} color="#64748B" />
-        </TouchableOpacity>
-
-        <View style={styles.actionGroup}>
-          <Text style={styles.hariEfektif}>Hari Efektif: {totalHariEfektif}</Text>
-          <TouchableOpacity style={styles.iconBtn} onPress={() => setShowPrintModal(true)}>
-            <Ionicons name="print" size={20} color="#0F172A" />
+        <View style={styles.filterGroup}>
+          <TouchableOpacity style={styles.dropdownBtn} onPress={() => openCustomDropdown('Pilih Semester', SEMESTER_OPTIONS, handleSemesterChange)}>
+            <Text style={styles.dropdownText}>Semester {selectedSemester.label}</Text>
+            <Ionicons name="chevron-down" size={16} color="#64748B" />
           </TouchableOpacity>
-          <TouchableOpacity style={styles.iconBtn} onPress={fetchDataAbsensi} disabled={loading}>
-            {loading ? <ActivityIndicator size="small" color="#2563EB" /> : <Ionicons name="refresh" size={20} color="#2563EB" />}
+
+          <TouchableOpacity style={styles.dropdownBtn} onPress={() => openCustomDropdown('Pilih Bulan', availableMonths, handleBulanChange)}>
+            <Ionicons name="calendar-outline" size={16} color="#2563EB" />
+            <Text style={styles.dropdownText}>{selectedBulan.label}</Text>
+            <Ionicons name="chevron-down" size={16} color="#64748B" />
           </TouchableOpacity>
         </View>
+
+        <TouchableOpacity style={styles.iconBtn} onPress={() => setShowPrintModal(true)}>
+          <Ionicons name="print" size={18} color="#0F172A" />
+        </TouchableOpacity>
       </View>
 
-      {/* CONTENT SECTION */}
+      {/* HARI EFEKTIF & TOMBOL REFRESH */}
+      <View style={styles.infoRowContainer}>
+        <Text style={styles.hariEfektif}>Hari Efektif: {totalHariEfektif} Hari</Text>
+
+        <TouchableOpacity style={styles.iconBtn} onPress={() => fetchDataAbsensi(selectedSemester, selectedBulan)} disabled={loading}>
+          {loading ? <ActivityIndicator size="small" color="#2563EB" /> : <Ionicons name="refresh" size={18} color="#2563EB" />}
+        </TouchableOpacity>
+      </View>
+
+      {/* TABEL DATA */}
       <ScrollView horizontal showsHorizontalScrollIndicator={true}>
         <View style={styles.tableContainer}>
           <View style={styles.tableHeader}>
@@ -330,7 +403,7 @@ export default function AbsenKlsScreen() {
             </View>
           ) : rekapSiswa.length === 0 ? (
             <View style={styles.innerCenterBox}>
-              <Text style={styles.infoText}>Tidak ada data absensi untuk bulan ini.</Text>
+              <Text style={styles.infoText}>Tidak ada data absensi pada periode ini.</Text>
             </View>
           ) : (
             <ScrollView showsVerticalScrollIndicator={true}>
@@ -361,33 +434,6 @@ export default function AbsenKlsScreen() {
         </View>
       </ScrollView>
 
-      {/* MODAL FILTER BULAN UTAMA */}
-      <Modal visible={showBulanModal} transparent={true} animationType="fade">
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalBulanContent}>
-            <Text style={styles.modalTitle}>Pilih Bulan</Text>
-            <FlatList
-              data={BULAN_OPTIONS}
-              keyExtractor={(item) => item.value}
-              renderItem={({ item }) => (
-                <TouchableOpacity
-                  style={styles.bulanOption}
-                  onPress={() => {
-                    setSelectedBulan(item);
-                    setShowBulanModal(false);
-                  }}
-                >
-                  <Text style={[styles.bulanOptionText, selectedBulan.value === item.value && styles.bulanOptionActive]}>{item.label}</Text>
-                </TouchableOpacity>
-              )}
-            />
-            <TouchableOpacity style={styles.closeModalBtn} onPress={() => setShowBulanModal(false)}>
-              <Text style={styles.closeModalText}>Batal</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
-
       {/* MODAL DETAIL SISWA */}
       <Modal visible={detailModalVisible} transparent={true} animationType="slide">
         <View style={styles.modalOverlay}>
@@ -412,21 +458,18 @@ export default function AbsenKlsScreen() {
           <View style={styles.modalPrintContent}>
             <Text style={styles.modalTitle}>Pengaturan Cetak</Text>
             
-            {/* Pilih Mode */}
             <Text style={styles.inputLabel}>Mode Cetak</Text>
             <TouchableOpacity style={styles.customDropdownBtn} onPress={() => openCustomDropdown('Pilih Mode Cetak', MODE_CETAK_OPTIONS, setPrintMode)}>
               <Text style={styles.customDropdownText}>{printMode.label}</Text>
               <Ionicons name="chevron-down" size={16} color="#64748B" />
             </TouchableOpacity>
 
-            {/* Pilih Ukuran Kertas */}
             <Text style={styles.inputLabel}>Ukuran Kertas</Text>
             <TouchableOpacity style={styles.customDropdownBtn} onPress={() => openCustomDropdown('Pilih Ukuran Kertas', PAPER_OPTIONS, setSelectedPaper)}>
               <Text style={styles.customDropdownText}>{selectedPaper.label}</Text>
               <Ionicons name="chevron-down" size={16} color="#64748B" />
             </TouchableOpacity>
 
-            {/* Pilihan Berdasarkan Mode */}
             {printMode.value === 'Bulan' ? (
               <View style={styles.rowInputs}>
                 <View style={{ flex: 1 }}>
@@ -448,8 +491,8 @@ export default function AbsenKlsScreen() {
             ) : (
               <View>
                 <Text style={styles.inputLabel}>Pilih Semester</Text>
-                <TouchableOpacity style={styles.customDropdownBtn} onPress={() => openCustomDropdown('Pilih Semester', SEMESTER_OPTIONS, setSelectedSemester)}>
-                  <Text style={styles.customDropdownText}>{selectedSemester.label}</Text>
+                <TouchableOpacity style={styles.customDropdownBtn} onPress={() => openCustomDropdown('Pilih Semester', SEMESTER_OPTIONS, setPrintSemester)}>
+                  <Text style={styles.customDropdownText}>{printSemester.label}</Text>
                   <Ionicons name="chevron-down" size={16} color="#64748B" />
                 </TouchableOpacity>
               </View>
@@ -501,13 +544,36 @@ export default function AbsenKlsScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F8FAFC' },
-  headerBox: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#FFF', padding: 12, borderBottomWidth: 1, borderBottomColor: '#E2E8F0' },
-  dropdownBtn: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F1F5F9', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, gap: 6 },
+  
+  // Header box filter rapat tanpa garis pembatas
+  headerBox: { 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    justifyContent: 'space-between',
+    backgroundColor: '#F8FAFC', 
+    paddingHorizontal: 15, 
+    paddingTop: 12,
+    paddingBottom: 4, 
+  },
+  filterGroup: { flexDirection: 'row', gap: 8, alignItems: 'center', flexWrap: 'wrap', flex: 1 },
+  dropdownBtn: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFF', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, borderWidth: 1, borderColor: '#E2E8F0', gap: 6 },
   dropdownText: { fontSize: 13, fontWeight: '600', color: '#334155' },
-  actionGroup: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  hariEfektif: { fontSize: 12, color: '#64748B', marginRight: 5, fontWeight: '500' },
-  iconBtn: { padding: 8, backgroundColor: '#EFF6FF', borderRadius: 8, borderWidth: 1, borderColor: '#BFDBFE' },
-  tableContainer: { padding: 15, minWidth: 620 },
+  
+  // Info Hari Efektif & Tombol Refresh Sejajar
+  infoRowContainer: { 
+    flexDirection: 'row', 
+    justifyContent: 'space-between', 
+    alignItems: 'center', 
+    paddingHorizontal: 15, 
+    paddingTop: 6, 
+    paddingBottom: 8, 
+    backgroundColor: '#F8FAFC' 
+  },
+  hariEfektif: { fontSize: 13, color: '#334155', fontWeight: '700' },
+  iconBtn: { padding: 6, backgroundColor: '#EFF6FF', borderRadius: 8, borderWidth: 1, borderColor: '#BFDBFE' },
+  
+  // Tabel
+  tableContainer: { paddingHorizontal: 15, paddingBottom: 15, minWidth: 620 },
   tableHeader: { flexDirection: 'row', backgroundColor: '#1E293B', paddingVertical: 10, borderRadius: 6, marginBottom: 4 },
   headCell: { color: '#FFF', fontWeight: 'bold', fontSize: 12, textAlign: 'center' },
   tableRow: { flexDirection: 'row', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#E2E8F0', alignItems: 'center' },
@@ -524,22 +590,21 @@ const styles = StyleSheet.create({
   innerCenterBox: { height: 250, justifyContent: 'center', alignItems: 'center', backgroundColor: '#F8FAFC', borderRadius: 8, marginTop: 10 },
   infoText: { marginTop: 12, color: '#64748B', fontSize: 13, fontStyle: 'italic' },
   
-  // Modals
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' },
-  modalBulanContent: { width: 280, backgroundColor: '#FFF', borderRadius: 12, padding: 20, maxHeight: 400 },
-  modalDetailContent: { width: '90%', backgroundColor: '#FFF', borderRadius: 12, padding: 20, maxHeight: '80%' },
-  modalPrintContent: { width: 320, backgroundColor: '#FFF', borderRadius: 12, padding: 20 },
+  // Modal Style
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 20 },
+  modalBulanContent: { width: '100%', maxWidth: 320, backgroundColor: '#FFF', borderRadius: 12, padding: 20, maxHeight: 400 },
+  modalDetailContent: { width: '100%', maxWidth: 600, backgroundColor: '#FFF', borderRadius: 12, padding: 20, maxHeight: '80%' },
+  modalPrintContent: { width: '100%', maxWidth: 450, backgroundColor: '#FFF', borderRadius: 12, padding: 20 },
   modalTitle: { fontSize: 16, fontWeight: 'bold', color: '#0F172A', marginBottom: 15, textAlign: 'center' },
   modalSubtitle: { fontSize: 14, color: '#64748B', marginBottom: 15, textAlign: 'center', fontWeight: '600' },
   bulanOption: { paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#F1F5F9' },
   bulanOptionText: { fontSize: 14, color: '#334155', textAlign: 'center' },
-  bulanOptionActive: { color: '#2563EB', fontWeight: 'bold' },
   closeModalBtn: { marginTop: 15, padding: 12, backgroundColor: '#F1F5F9', borderRadius: 8 },
   closeDetailBtn: { marginTop: 15, padding: 12, backgroundColor: '#2563EB', borderRadius: 8 },
   closeModalText: { textAlign: 'center', fontWeight: 'bold', color: '#334155' },
   emptyDetailText: { textAlign: 'center', color: '#64748B', fontStyle: 'italic', marginTop: 20 },
 
-  // Detail Groups
+  // Detail Card
   detailListContainer: { flexGrow: 0 },
   groupCard: { backgroundColor: '#F8FAFC', borderRadius: 8, marginBottom: 12, borderWidth: 1, borderColor: '#E2E8F0', borderLeftWidth: 5, overflow: 'hidden' },
   groupHeader: { paddingVertical: 8, paddingHorizontal: 12, borderBottomWidth: 1, borderBottomColor: '#E2E8F0' },
@@ -549,7 +614,7 @@ const styles = StyleSheet.create({
   listItem: { fontSize: 13, color: '#334155', fontWeight: '600', marginBottom: 2 },
   listItemSub: { fontSize: 12, color: '#64748B', marginLeft: 10, marginTop: 2, lineHeight: 18 },
 
-  // Form Cetak
+  // Cetak
   inputLabel: { fontSize: 12, fontWeight: '600', color: '#64748B', marginBottom: 6, marginTop: 10 },
   customDropdownBtn: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#F1F5F9', padding: 12, borderRadius: 8, borderWidth: 1, borderColor: '#E2E8F0' },
   customDropdownText: { fontSize: 14, color: '#334155' },
