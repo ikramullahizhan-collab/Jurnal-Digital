@@ -11,7 +11,9 @@ import {
   ScrollView,
   RefreshControl,
   Image,
-  Alert
+  Alert,
+  Platform,
+  Linking
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { callBackendAPI } from '../api/client';
@@ -23,9 +25,10 @@ export default function PantauGuruScreen({ navigation }) {
   const [filteredData, setFilteredData] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
 
-  // State Modal Detail
+  // State Modal Detail & Error Image
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [selectedItem, setSelectedItem] = useState(null);
+  const [imageError, setImageError] = useState(false);
 
   // Load Data dari Backend Google Apps Script
   const fetchData = async () => {
@@ -88,6 +91,7 @@ export default function PantauGuruScreen({ navigation }) {
   // Buka Modal Detail
   const handleOpenDetail = (item) => {
     setSelectedItem(item);
+    setImageError(false); // Reset status error gambar setiap membuka modal baru
     setShowDetailModal(true);
   };
 
@@ -109,7 +113,7 @@ export default function PantauGuruScreen({ navigation }) {
     return { bg: '#E0E0E0', text: '#424242' };
   };
 
-  // Helper untuk merubah link Google Drive viewer menjadi direct image link (Bisa dirender <Image /> di PWA/Web)
+  // Helper untuk merubah link Google Drive viewer menjadi direct image link
   const getDirectImageUrl = (url) => {
     if (!url) return null;
     const driveRegex = /\/file\/d\/([a-zA-Z0-9_-]+)/;
@@ -177,7 +181,7 @@ export default function PantauGuruScreen({ navigation }) {
       )
     : [];
 
-  // Pengecekan aman (safe fallback) properti foto dari backend
+  // Pengecekan aman properti foto dari backend
   const rawPhotoUrl = selectedItem?.buktiFoto || selectedItem?.buktiSwafoto || selectedItem?.['Bukti Swafoto'];
   const validPhotoUrl = typeof rawPhotoUrl === 'string' && rawPhotoUrl.startsWith('http') ? rawPhotoUrl : null;
   const directImageUrl = getDirectImageUrl(validPhotoUrl);
@@ -344,17 +348,33 @@ export default function PantauGuruScreen({ navigation }) {
                   )}
                 </View>
 
-                {/* Bagian Bukti Foto - Overlay dihapus dan hanya dirender jika URL aman */}
-                {directImageUrl ? (
+                {/* Bagian Bukti Foto - Mendukung PWA dengan Fallback URL */}
+                {validPhotoUrl ? (
                   <View style={styles.modalSection}>
                     <Text style={styles.modalLabel}>Foto Dokumentasi Jurnal Guru</Text>
-                    <View style={styles.imageContainer}>
-                      <Image
-                        source={{ uri: directImageUrl }}
-                        style={styles.buktiFotoImage}
-                        resizeMode="cover"
-                      />
-                    </View>
+                    
+                    {!imageError && directImageUrl ? (
+                      <View style={styles.imageContainer}>
+                        <Image
+                          source={{ uri: directImageUrl }}
+                          style={styles.buktiFotoImage}
+                          resizeMode="cover"
+                          onError={() => setImageError(true)} // Deteksi jika browser PWA memblokir gambar
+                        />
+                      </View>
+                    ) : null}
+
+                    {/* Tombol akan muncul di PWA (Web) ATAU jika gambar gagal dirender (CORS Block) */}
+                    {(Platform.OS === 'web' || imageError || !directImageUrl) && (
+                      <TouchableOpacity
+                        style={styles.btnOpenDrive}
+                        onPress={() => Linking.openURL(validPhotoUrl)}
+                        activeOpacity={0.8}
+                      >
+                        <Ionicons name="open-outline" size={18} color="#FFF" />
+                        <Text style={styles.btnOpenDriveText}>Buka Foto di Tab Baru</Text>
+                      </TouchableOpacity>
+                    )}
                   </View>
                 ) : null}
               </ScrollView>
@@ -411,22 +431,8 @@ const styles = StyleSheet.create({
   emptyTitle: { fontSize: 18, fontWeight: 'bold', color: '#2E7D32', marginTop: 12 },
   emptySubtitle: { fontSize: 13, color: '#666', textAlign: 'center', marginTop: 6, lineHeight: 18 },
   
-  /* Update PWA & Modal Styles */
-  modalOverlay: { 
-    flex: 1, 
-    backgroundColor: 'rgba(0,0,0,0.5)', 
-    justifyContent: 'flex-end',
-    alignItems: 'center' // Menjaga agar di PWA (layar lebar) berada di tengah
-  },
-  modalContainer: { 
-    backgroundColor: '#FFF', 
-    borderTopLeftRadius: 16, 
-    borderTopRightRadius: 16, 
-    maxHeight: '85%', 
-    width: '100%',
-    maxWidth: 600, // Menghindari modal terlalu lebar di web/PWA
-    paddingBottom: 20 
-  },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end', alignItems: 'center' },
+  modalContainer: { backgroundColor: '#FFF', borderTopLeftRadius: 16, borderTopRightRadius: 16, maxHeight: '85%', width: '100%', maxWidth: 600, paddingBottom: 20 },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, borderBottomWidth: 1, borderBottomColor: '#E0E0E0' },
   modalTitle: { fontSize: 18, fontWeight: 'bold', color: '#111827' },
   modalBody: { padding: 16 },
@@ -447,8 +453,12 @@ const styles = StyleSheet.create({
   absenNamaText: { flex: 1, fontSize: 13, color: '#333', marginLeft: 8 },
   absenStatusBadge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 4 },
   emptyAbsenText: { fontSize: 13, color: '#666', fontStyle: 'italic', marginTop: 4 },
-  imageContainer: { marginTop: 6, borderRadius: 8, overflow: 'hidden', backgroundColor: '#E0E0E0' },
-  buktiFotoImage: { width: '100%', height: 200 }, // Tinggi disesuaikan untuk tampilan web/mobile
+  
+  imageContainer: { marginTop: 8, borderRadius: 8, overflow: 'hidden', backgroundColor: '#E0E0E0' },
+  buktiFotoImage: { width: '100%', height: 200 },
+  btnOpenDrive: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: '#0052CC', paddingVertical: 10, borderRadius: 8, marginTop: 10 },
+  btnOpenDriveText: { color: '#FFF', fontSize: 13, fontWeight: 'bold', marginLeft: 6 },
+  
   modalFooter: { paddingHorizontal: 16, paddingTop: 10 },
   closeModalButton: { backgroundColor: '#E0E0E0', paddingVertical: 12, borderRadius: 8, alignItems: 'center' },
   closeModalButtonText: { color: '#333', fontWeight: 'bold', fontSize: 14 },
