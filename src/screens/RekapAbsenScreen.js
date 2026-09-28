@@ -577,8 +577,9 @@ export default function RekapAbsenScreen() {
 
   const renderModalCetak = () => (
     <Modal visible={modalCetakVisible} transparent animationType="fade">
-      <View style={styles.modalOverlay}>
-        <View style={[styles.modalContent, styles.pwaModalBox]}>
+      {/* Tambahkan zIndex 1000 di sini */}
+      <View style={[styles.modalOverlay, { zIndex: 1000, elevation: 10 }]}>
+        <View style={[styles.modalContent, styles.pwaModalBox, { zIndex: 1001, elevation: 11 }]}>
           <View style={styles.modalCetakHeader}>
             <Text style={styles.modalTitle}>Cetak Absensi Siswa</Text>
             <TouchableOpacity onPress={() => setModalCetakVisible(false)}>
@@ -782,14 +783,14 @@ export default function RekapAbsenScreen() {
       {/* 1. Taruh Modal Cetak lebih dulu di sini */}
       {renderModalCetak()}
 
-      {/* 2. Taruh Modal Dropdown di PALING BAWAH agar selalu muncul di atas/layer paling depan */}
-      <Modal visible={modalVisible} transparent animationType="fade" style={{ zIndex: 9999 }}>
+      {/* 2. Taruh Modal Dropdown di PALING BAWAH dengan Z-Index Maksimal */}
+      <Modal visible={modalVisible} transparent animationType="fade">
         <TouchableOpacity
-          style={styles.modalOverlay}
+          style={[styles.modalOverlay, { zIndex: 99999, elevation: 999 }]}
           activeOpacity={1}
           onPress={() => setModalVisible(false)}
         >
-          <View style={[styles.modalContent, styles.pwaModalBox, { zIndex: 9999 }]}>
+          <View style={[styles.modalContent, styles.pwaModalBox, { zIndex: 999999, elevation: 1000 }]}>
             <Text style={styles.modalTitle}>
               {modalType === 'KELAS'
                 ? 'Pilih Kelas'
@@ -802,11 +803,102 @@ export default function RekapAbsenScreen() {
                 : 'Pilih Model Cetak'}
             </Text>
             
-            {/* ScrollView dan isinya tetap sama seperti sebelumnya... */}
             <ScrollView style={{ maxHeight: 300 }}>
-               {/* ... (kode map dropdown tetap sama) ... */}
+              {modalType === 'MAPEL' &&
+                (listMapel.length > 0 ? (
+                  listMapel.map((item, index) => {
+                    const isSelected = item === selectedMapel;
+                    return (
+                      <TouchableOpacity
+                        key={index.toString()}
+                        style={[styles.modalItem, isSelected && styles.modalItemSelected]}
+                        onPress={() => handleSelectOption(item)}
+                      >
+                        <Text style={[styles.modalItemText, isSelected && styles.modalItemTextSelected]}>
+                          {item}
+                        </Text>
+                        {isSelected && <Ionicons name="checkmark" size={18} color="#3B82F6" />}
+                      </TouchableOpacity>
+                    );
+                  })
+                ) : (
+                  <View style={{ padding: 20, alignItems: 'center' }}>
+                    <Text style={{ color: '#64748B', textAlign: 'center' }}>
+                      Tidak ada mapel yang tersedia.
+                    </Text>
+                  </View>
+                ))}
+
+              {modalType === 'KELAS' &&
+                listKelas.map((item, index) => {
+                  const val = typeof item === 'object' ? (item.id || item.nama) : item;
+                  const label = typeof item === 'object' ? (item.nama || item.id) : item;
+                  const isSelected = String(val) === String(idKelas);
+                  return (
+                    <TouchableOpacity
+                      key={index.toString()}
+                      style={[styles.modalItem, isSelected && styles.modalItemSelected]}
+                      onPress={() => handleSelectOption(val)}
+                    >
+                      <Text style={[styles.modalItemText, isSelected && styles.modalItemTextSelected]}>
+                        {label}
+                      </Text>
+                      {isSelected && <Ionicons name="checkmark" size={18} color="#3B82F6" />}
+                    </TouchableOpacity>
+                  );
+                })}
+
+              {modalType === 'BULAN' &&
+                daftarBulan.map((item) => {
+                  const isSelected = item.value === bulan;
+                  return (
+                    <TouchableOpacity
+                      key={item.value}
+                      style={[styles.modalItem, isSelected && styles.modalItemSelected]}
+                      onPress={() => handleSelectOption(item.value)}
+                    >
+                      <Text style={[styles.modalItemText, isSelected && styles.modalItemTextSelected]}>
+                        {item.label}
+                      </Text>
+                      {isSelected && <Ionicons name="checkmark" size={18} color="#3B82F6" />}
+                    </TouchableOpacity>
+                  );
+                })}
+
+              {modalType === 'SEMESTER' &&
+                daftarSemester.map((item) => {
+                  const isSelected = item.value === semester;
+                  return (
+                    <TouchableOpacity
+                      key={item.value}
+                      style={[styles.modalItem, isSelected && styles.modalItemSelected]}
+                      onPress={() => handleSelectOption(item.value)}
+                    >
+                      <Text style={[styles.modalItemText, isSelected && styles.modalItemTextSelected]}>
+                        {item.label}
+                      </Text>
+                      {isSelected && <Ionicons name="checkmark" size={18} color="#3B82F6" />}
+                    </TouchableOpacity>
+                  );
+                })}
+
+              {modalType === 'MODEL_CETAK' &&
+                daftarModelCetak.map((item) => {
+                  const isSelected = item.value === modelCetak;
+                  return (
+                    <TouchableOpacity
+                      key={item.value}
+                      style={[styles.modalItem, isSelected && styles.modalItemSelected]}
+                      onPress={() => handleSelectOption(item.value)}
+                    >
+                      <Text style={[styles.modalItemText, isSelected && styles.modalItemTextSelected]}>
+                        {item.label}
+                      </Text>
+                      {isSelected && <Ionicons name="checkmark" size={18} color="#3B82F6" />}
+                    </TouchableOpacity>
+                  );
+                })}
             </ScrollView>
-            
           </View>
         </TouchableOpacity>
       </Modal>
