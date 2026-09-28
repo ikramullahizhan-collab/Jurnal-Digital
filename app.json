@@ -22,7 +22,10 @@
       "package": "com.ikramullah01.JurnalDigital"
     },
     "web": {
-      "favicon": "./assets/logo.png"
+      "favicon": "./assets/logo.png",
+      "pwa": {
+        "appleTouchIcon": "./assets/logo.png"
+      }
     },
     "plugins": [
       "expo-secure-store",
