@@ -31,7 +31,15 @@
       "expo-secure-store",
       "expo-sharing",
       "expo-status-bar",
-      "@react-native-community/datetimepicker"
+      "@react-native-community/datetimepicker",
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "Aplikasi memerlukan izin untuk menyimpan foto ke Galeri.",
+          "savePhotosPermission": "Aplikasi memerlukan izin untuk menyimpan foto ke Galeri.",
+          "isAccessMediaLocationEnabled": true
+        }
+      ]
     ],
     "extra": {
       "eas": {

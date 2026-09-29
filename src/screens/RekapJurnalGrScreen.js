@@ -15,9 +15,16 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Print from 'expo-print';
-import * as FileSystem from 'expo-file-system/legacy';
+import * as FileSystem from 'expo-file-system';
 import { callBackendAPI } from '../api/client';
 import { AuthContext } from '../context/AuthContext';
+
+let MediaLibrary = null;
+try {
+  MediaLibrary = require('expo-media-library');
+} catch (e) {
+  console.log('MediaLibrary native module belum terpasang/ter-link:', e);
+}
 
 const getInitialStatus = (status) => {
   if (!status) return 'B';
@@ -26,20 +33,20 @@ const getInitialStatus = (status) => {
   if (s.startsWith('S')) return 'S';
   if (s.startsWith('I')) return 'I';
   if (s.startsWith('A')) return 'A';
+  if (s.startsWith('B')) return 'B';
   return 'B';
 };
 
 const getValidImageUri = (url) => {
   if (!url || typeof url !== 'string') return null;
   const str = url.trim();
+  if (!str) return null;
 
-  // 1. Link Google Drive
   if (str.includes('drive.google.com')) {
     const match = str.match(/[-\w]{25,}/);
     if (match) return `https://lh3.googleusercontent.com/d/${match[0]}`;
   }
 
-  // 2. Link Online, File Lokal, atau Data URI
   if (
     str.startsWith('http://') ||
     str.startsWith('https://') ||
@@ -49,21 +56,18 @@ const getValidImageUri = (url) => {
   ) {
     return str;
   }
-
-  // 3. Raw Base64 String
   return `data:image/jpeg;base64,${str}`;
 };
 
 const convertUriToBase64 = async (uri) => {
   if (!uri || typeof uri !== 'string') return null;
   const cleanUri = uri.trim();
+  if (!cleanUri) return null;
 
-  // 1. Sudah dalam format Data URI Base64
   if (cleanUri.startsWith('data:image')) {
     return cleanUri;
   }
 
-  // 2. File Lokal Native (file://, content://) - khusus Android/iOS
   if (Platform.OS !== 'web' && (cleanUri.startsWith('file://') || cleanUri.startsWith('content://'))) {
     try {
       const base64 = await FileSystem.readAsStringAsync(cleanUri, {
@@ -76,7 +80,6 @@ const convertUriToBase64 = async (uri) => {
     }
   }
 
-  // 3. Format Link Google Drive
   let targetUrl = cleanUri;
   if (cleanUri.includes('drive.google.com')) {
     const match = cleanUri.match(/[-\w]{25,}/);
@@ -85,31 +88,44 @@ const convertUriToBase64 = async (uri) => {
     }
   }
 
-  // 4. Link Gambar Online / Web Blob / Data URI
   if (targetUrl.startsWith('http://') || targetUrl.startsWith('https://') || targetUrl.startsWith('blob:')) {
-    try {
-      const response = await fetch(targetUrl);
-      const blob = await response.blob();
+    if (Platform.OS === 'web') {
+      try {
+        const response = await fetch(targetUrl, { mode: 'cors' });
+        const blob = await response.blob();
 
-      return await new Promise((resolve) => {
-        const reader = new FileReader();
-        reader.onloadend = () => resolve(reader.result);
-        reader.onerror = () => resolve(targetUrl);
-        reader.readAsDataURL(blob);
+        return await new Promise((resolve) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result);
+          reader.onerror = () => resolve(null);
+          reader.readAsDataURL(blob);
+        });
+      } catch (err) {
+        console.log('Gagal konversi gambar web (CORS / Network Limit):', err);
+        return null; // Kembalikan null jika terhalang CORS
+      }
+    } 
+    
+    try {
+      const tempPath = `${FileSystem.cacheDirectory}temp_img_${Date.now()}.jpg`;
+      const downloadResult = await FileSystem.downloadAsync(targetUrl, tempPath);
+      const base64 = await FileSystem.readAsStringAsync(downloadResult.uri, {
+        encoding: FileSystem.EncodingType.Base64,
       });
+      await FileSystem.deleteAsync(downloadResult.uri, { idempotent: true });
+      return `data:image/jpeg;base64,${base64}`;
     } catch (err) {
-      console.log('Gagal konversi gambar web/online:', err);
+      console.log('Gagal konversi gambar native:', err);
       return targetUrl;
     }
   }
-
-  // 5. Raw Base64 string tanpa prefix
   return `data:image/jpeg;base64,${cleanUri}`;
 };
 
 const parseMonthFromWaktu = (waktuStr) => {
   if (!waktuStr) return null;
   const str = waktuStr.toString().trim();
+  if (!str) return null;
 
   if (/^\d{4}[-/]\d{1,2}[-/]\d{1,2}/.test(str)) {
     const parts = str.split(' ')[0].split(/[-/]/);
@@ -148,11 +164,9 @@ export default function RekapJurnalGrScreen() {
   const [filteredData, setFilteredData] = useState([]);
   const [loading, setLoading] = useState(false);
 
-  // Filter States
   const [searchKelas, setSearchKelas] = useState('');
   const [statusTinjauan, setStatusTinjauan] = useState('Semua');
 
-  // Modal Absen States
   const [modalAbsenVisible, setModalAbsenVisible] = useState(false);
   const [selectedAbsen, setSelectedAbsen] = useState([]);
   const [selectedAbsenKelas, setSelectedAbsenKelas] = useState('');
@@ -160,11 +174,10 @@ export default function RekapJurnalGrScreen() {
   const [savingAbsen, setSavingAbsen] = useState(false);
   const [isEditMode, setIsEditMode] = useState(false);
 
-  // Modal Detail States
   const [modalDetailVisible, setModalDetailVisible] = useState(false);
   const [selectedDetail, setSelectedDetail] = useState(null);
+  const [downloadingFoto, setDownloadingFoto] = useState(false);
 
-  // Modal Cetak States
   const [modalCetakVisible, setModalCetakVisible] = useState(false);
   const [jenisCetak, setJenisCetak] = useState('Bulanan');
   const [bulanPilihan, setBulanPilihan] = useState(new Date().getMonth());
@@ -172,7 +185,6 @@ export default function RekapJurnalGrScreen() {
   const [pakaiFoto, setPakaiFoto] = useState(true);
   const [generatingPdf, setGeneratingPdf] = useState(false);
 
-  // Custom Dropdown Modal States
   const [selectModalVisible, setSelectModalVisible] = useState(false);
   const [selectModalType, setSelectModalType] = useState('');
 
@@ -190,7 +202,7 @@ export default function RekapJurnalGrScreen() {
       const namaGuruAktif = user?.nama || user?.namaLengkap || '';
       const res = await callBackendAPI('getJurnalGuruSaya', { namaGuruAktif });
 
-      if (res && res.success && Array.isArray(res.data)) {
+      if (res && (res.success || res.status === 'success') && Array.isArray(res.data)) {
         const formattedData = res.data.map((item) => ({
           id: item.idJurnal,
           waktu: item.waktu,
@@ -202,25 +214,21 @@ export default function RekapJurnalGrScreen() {
           hambatan: item.hambatan,
           catatanKepsek: item.catatanKepsek,
           foto: item.buktiFoto,
-          statusTinjauan: (item.catatanKepsek && item.catatanKepsek.trim() !== '') ? 'Sudah' : 'Belum',
+          statusTinjauan: (item.catatanKepsek && String(item.catatanKepsek).trim() !== '') ? 'Sudah' : 'Belum',
           absenSiswa: item.listAbsen || []
         }));
 
         setJurnalData(formattedData);
       } else {
-        if (Platform.OS === 'web') {
-          window.alert(res?.message || 'Data jurnal tidak ditemukan.');
-        } else {
-          Alert.alert('Informasi', res?.message || 'Data jurnal tidak ditemukan.');
-        }
+        const msg = res?.message || 'Gagal terhubung atau data jurnal tidak ditemukan.';
+        if (Platform.OS === 'web') window.alert(msg);
+        else Alert.alert('Informasi', msg);
       }
     } catch (error) {
       console.log('Error fetch jurnal:', error);
-      if (Platform.OS === 'web') {
-        window.alert('Gagal memuat data jurnal.');
-      } else {
-        Alert.alert('Error', 'Gagal memuat data jurnal.');
-      }
+      const errorMsg = 'Gagal memuat data jurnal. Pastikan server aktif dan URL benar.';
+      if (Platform.OS === 'web') window.alert(errorMsg);
+      else Alert.alert('Error', errorMsg);
     } finally {
       setLoading(false);
     }
@@ -228,19 +236,16 @@ export default function RekapJurnalGrScreen() {
 
   const applyFilters = () => {
     let result = jurnalData;
-
     if (searchKelas.trim() !== '') {
       result = result.filter(item =>
         item.kelas.toLowerCase().includes(searchKelas.toLowerCase())
       );
     }
-
     if (statusTinjauan === 'Belum') {
       result = result.filter(item => item.statusTinjauan === 'Belum');
     } else if (statusTinjauan === 'Sudah') {
       result = result.filter(item => item.statusTinjauan === 'Sudah');
     }
-
     setFilteredData(result);
   };
 
@@ -251,25 +256,16 @@ export default function RekapJurnalGrScreen() {
 
       if (res && (res.success || res.status === 'success')) {
         setJurnalData(prev => prev.filter(item => item.id !== id));
-        if (Platform.OS === 'web') {
-          window.alert('Jurnal dan data presensi berhasil dihapus.');
-        } else {
-          Alert.alert('Berhasil', 'Jurnal dan data presensi berhasil dihapus.');
-        }
+        if (Platform.OS === 'web') window.alert('Jurnal dan data presensi berhasil dihapus.');
+        else Alert.alert('Berhasil', 'Jurnal dan data presensi berhasil dihapus.');
       } else {
-        if (Platform.OS === 'web') {
-          window.alert(res?.message || 'Gagal menghapus jurnal di server.');
-        } else {
-          Alert.alert('Gagal', res?.message || 'Gagal menghapus jurnal di server.');
-        }
+        if (Platform.OS === 'web') window.alert(res?.message || 'Gagal menghapus jurnal di server.');
+        else Alert.alert('Gagal', res?.message || 'Gagal menghapus jurnal di server.');
       }
     } catch (error) {
       console.log('Error hapus jurnal:', error);
-      if (Platform.OS === 'web') {
-        window.alert('Terjadi kesalahan koneksi saat menghapus data.');
-      } else {
-        Alert.alert('Error', 'Terjadi kesalahan koneksi saat menghapus data.');
-      }
+      if (Platform.OS === 'web') window.alert('Terjadi kesalahan saat menghapus data.');
+      else Alert.alert('Error', 'Terjadi kesalahan saat menghapus data.');
     } finally {
       setLoading(false);
     }
@@ -277,11 +273,8 @@ export default function RekapJurnalGrScreen() {
 
   const handleDelete = (id) => {
     const pesanKonfirmasi = 'Apakah Anda yakin ingin menghapus jurnal ini? Data absensi siswa terkait juga akan dihapus.';
-
     if (Platform.OS === 'web') {
-      if (window.confirm(pesanKonfirmasi)) {
-        executeDelete(id);
-      }
+      if (window.confirm(pesanKonfirmasi)) executeDelete(id);
     } else {
       Alert.alert(
         'Konfirmasi Hapus',
@@ -320,31 +313,120 @@ export default function RekapJurnalGrScreen() {
               : item
           )
         );
-        if (Platform.OS === 'web') {
-          window.alert('Data presensi siswa berhasil diperbarui.');
-        } else {
-          Alert.alert('Berhasil', 'Data presensi siswa berhasil diperbarui.');
-        }
+        if (Platform.OS === 'web') window.alert('Data presensi siswa berhasil diperbarui.');
+        else Alert.alert('Berhasil', 'Data presensi siswa berhasil diperbarui.');
+        
         setIsEditMode(false);
         setModalAbsenVisible(false);
       } else {
-        if (Platform.OS === 'web') {
-          window.alert(res?.message || 'Gagal menyimpan perubahan presensi.');
-        } else {
-          Alert.alert('Gagal', res?.message || 'Gagal menyimpan perubahan presensi.');
-        }
+        if (Platform.OS === 'web') window.alert(res?.message || 'Gagal menyimpan perubahan presensi.');
+        else Alert.alert('Gagal', res?.message || 'Gagal menyimpan perubahan presensi.');
       }
     } catch (error) {
       console.log('Error update absensi:', error);
-      if (Platform.OS === 'web') {
-        window.alert('Terjadi kesalahan koneksi saat menyimpan data.');
-      } else {
-        Alert.alert('Error', 'Terjadi kesalahan koneksi saat menyimpan data.');
-      }
+      if (Platform.OS === 'web') window.alert('Terjadi kesalahan koneksi saat menyimpan data.');
+      else Alert.alert('Error', 'Terjadi kesalahan koneksi saat menyimpan data.');
     } finally {
       setSavingAbsen(false);
     }
   };
+
+  const handleDownloadFoto = async (fotoUri) => {
+  if (!fotoUri) return;
+  setDownloadingFoto(true);
+
+  try {
+    const fileName = `dokumentasi_${selectedDetail?.id || Date.now()}.jpg`;
+
+    // --- LOGIK KHUSUS WEB / PWA ---
+    if (Platform.OS === 'web') {
+      let downloadUrl = fotoUri.trim();
+
+      // Jika URL berupa HTTP/HTTPS, lakukan konversi Base64 / Blob terlebih dahulu
+      if (downloadUrl.startsWith('http://') || downloadUrl.startsWith('https://')) {
+        const base64Data = await convertUriToBase64(downloadUrl);
+        if (base64Data && base64Data.startsWith('data:image')) {
+          downloadUrl = base64Data;
+        } else {
+          // Fallback PWA jika server foto memblokir CORS:
+          // Buka foto di tab baru agar pengguna dapat menekan/klik kanan "Simpan Gambar"
+          window.open(fotoUri, '_blank');
+          setDownloadingFoto(false);
+          return;
+        }
+      }
+
+      // Eksekusi elemen 'a' unduhan di DOM Browser
+      const link = document.createElement('a');
+      link.href = downloadUrl;
+      link.download = fileName;
+      link.target = '_blank';
+      document.body.appendChild(link);
+      link.click();
+      
+      // Cleanup DOM
+      setTimeout(() => {
+        document.body.removeChild(link);
+      }, 100);
+
+      setDownloadingFoto(false);
+      return;
+    }
+
+    // --- LOGIK NATIVE MOBILE (ANDROID / IOS) ---
+    if (!MediaLibrary || !MediaLibrary.requestPermissionsAsync) {
+      Alert.alert('Modul Native Belum Siap', 'Silakan jalankan "npx expo run:android" pada terminal.');
+      setDownloadingFoto(false);
+      return;
+    }
+
+    const { status } = await MediaLibrary.requestPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Izin Ditolak', 'Aplikasi membutuhkan izin akses galeri untuk menyimpan foto.');
+      setDownloadingFoto(false);
+      return;
+    }
+
+    let targetUrl = fotoUri.trim();
+    if (targetUrl.includes('drive.google.com')) {
+      const match = targetUrl.match(/[-\w]{25,}/);
+      if (match) {
+        targetUrl = `https://lh3.googleusercontent.com/d/${match[0]}`;
+      }
+    }
+
+    const tempFileUri = `${FileSystem.cacheDirectory}${fileName}`;
+
+    if (targetUrl.startsWith('http://') || targetUrl.startsWith('https://')) {
+      const downloadResult = await FileSystem.downloadAsync(targetUrl, tempFileUri);
+      if (downloadResult.status !== 200) {
+        throw new Error(`Gagal mengunduh file dari server (HTTP Status: ${downloadResult.status}).`);
+      }
+    } else if (targetUrl.startsWith('data:image')) {
+      const pureBase64 = targetUrl.split(',')[1];
+      await FileSystem.writeAsStringAsync(tempFileUri, pureBase64, { encoding: FileSystem.EncodingType.Base64 });
+    } else if (targetUrl.startsWith('file://') || targetUrl.startsWith('content://')) {
+      await FileSystem.copyAsync({ from: targetUrl, to: tempFileUri });
+    } else {
+      const pureBase64 = targetUrl.includes(',') ? targetUrl.split(',')[1] : targetUrl;
+      await FileSystem.writeAsStringAsync(tempFileUri, pureBase64, { encoding: FileSystem.EncodingType.Base64 });
+    }
+
+    await MediaLibrary.createAssetAsync(tempFileUri);
+    await FileSystem.deleteAsync(tempFileUri, { idempotent: true });
+
+    Alert.alert('Berhasil', 'Foto dokumentasi telah berhasil disimpan ke Galeri HP!');
+  } catch (error) {
+    console.log('Error detail simpan ke galeri:', error);
+    if (Platform.OS === 'web') {
+      window.open(fotoUri, '_blank');
+    } else {
+      Alert.alert('Gagal', error?.message || 'Gagal menyimpan foto.');
+    }
+  } finally {
+    setDownloadingFoto(false);
+  }
+};
 
   const openSelectModal = (type) => {
     setSelectModalType(type);
@@ -352,15 +434,10 @@ export default function RekapJurnalGrScreen() {
   };
 
   const handleSelectOption = (value) => {
-    if (selectModalType === 'STATUS_TINJAUAN') {
-      setStatusTinjauan(value);
-    } else if (selectModalType === 'JENIS_CETAK') {
-      setJenisCetak(value);
-    } else if (selectModalType === 'BULAN_CETAK') {
-      setBulanPilihan(value);
-    } else if (selectModalType === 'SEMESTER_CETAK') {
-      setSemesterPilihan(value);
-    }
+    if (selectModalType === 'STATUS_TINJAUAN') setStatusTinjauan(value);
+    else if (selectModalType === 'JENIS_CETAK') setJenisCetak(value);
+    else if (selectModalType === 'BULAN_CETAK') setBulanPilihan(value);
+    else if (selectModalType === 'SEMESTER_CETAK') setSemesterPilihan(value);
     setSelectModalVisible(false);
   };
 
@@ -370,21 +447,10 @@ export default function RekapJurnalGrScreen() {
     return 'Semua Status';
   };
 
-  const getJenisCetakLabel = () => {
-    return jenisCetak === 'Bulanan' ? 'Cetak Bulanan' : 'Cetak Per Semester';
-  };
+  const getJenisCetakLabel = () => jenisCetak === 'Bulanan' ? 'Cetak Bulanan' : 'Cetak Per Semester';
+  const getBulanPilihanLabel = () => DAFTAR_BULAN[parseInt(bulanPilihan, 10)] || 'Pilih Bulan';
+  const getSemesterPilihanLabel = () => semesterPilihan === 'Ganjil' ? 'Semester Ganjil (Juli - Des)' : 'Semester Genap (Jan - Juni)';
 
-  const getBulanPilihanLabel = () => {
-    return DAFTAR_BULAN[parseInt(bulanPilihan, 10)] || 'Pilih Bulan';
-  };
-
-  const getSemesterPilihanLabel = () => {
-    return semesterPilihan === 'Ganjil'
-      ? 'Semester Ganjil (Juli - Des)'
-      : 'Semester Genap (Jan - Juni)';
-  };
-
-  // --- ENGINE CETAK KHUSUS NATIVE & PWA WEB ---
   const printCrossPlatform = async (htmlContent) => {
     if (Platform.OS === 'web') {
       return new Promise((resolve, reject) => {
@@ -418,9 +484,8 @@ export default function RekapJurnalGrScreen() {
             }, 300);
           };
 
-          if (totalImages === 0) {
-            triggerPrint();
-          } else {
+          if (totalImages === 0) triggerPrint();
+          else {
             images.forEach((img) => {
               if (img.complete) {
                 loadedCount++;
@@ -445,7 +510,6 @@ export default function RekapJurnalGrScreen() {
 
   const handleProsesCetakPdf = async () => {
     setGeneratingPdf(true);
-
     try {
       const dataTerfilter = jurnalData.filter((item) => {
         const bulanIndex = parseMonthFromWaktu(item.waktu);
@@ -461,11 +525,8 @@ export default function RekapJurnalGrScreen() {
       });
 
       if (dataTerfilter.length === 0) {
-        if (Platform.OS === 'web') {
-          window.alert('Tidak ada data jurnal pada periode yang dipilih.');
-        } else {
-          Alert.alert('Informasi', 'Tidak ada data jurnal pada periode yang dipilih.');
-        }
+        if (Platform.OS === 'web') window.alert('Tidak ada data jurnal pada periode yang dipilih.');
+        else Alert.alert('Informasi', 'Tidak ada data jurnal pada periode yang dipilih.');
         setGeneratingPdf(false);
         return;
       }
@@ -497,7 +558,6 @@ export default function RekapJurnalGrScreen() {
 
         if (pakaiFoto && item.foto) {
           const base64Img = await convertUriToBase64(item.foto);
-
           if (base64Img) {
             lampiranHtml += `
               <div style="margin-bottom: 20px; page-break-inside: avoid; text-align: center; border: 1px solid #cbd5e1; padding: 10px; border-radius: 6px; background: #fafafa;">
@@ -517,13 +577,8 @@ export default function RekapJurnalGrScreen() {
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
             <title>Rekap Jurnal Mengajar</title>
             <style>
-              @page {
-                size: A4 portrait;
-                margin: 12mm 15mm;
-              }
-              @media print {
-                body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-              }
+              @page { size: A4 portrait; margin: 12mm 15mm; }
+              @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
               body { font-family: 'Segoe UI', Arial, sans-serif; padding: 0; margin: 0; color: #333; font-size: 11px; line-height: 1.4; }
               .header { text-align: center; margin-bottom: 20px; border-bottom: 2px solid #333; padding-bottom: 10px; }
               .header h2 { margin: 0; font-size: 16px; text-transform: uppercase; color: #0f172a; }
@@ -540,7 +595,6 @@ export default function RekapJurnalGrScreen() {
               <h2>REKAPITULASI JURNAL MENGAJAR GURU</h2>
               <p>Nama Guru: <strong>${namaGuru}</strong> | Periode: <strong>${judulPeriode}</strong></p>
             </div>
-
             <table>
               <thead>
                 <tr>
@@ -551,11 +605,8 @@ export default function RekapJurnalGrScreen() {
                   <th style="width: 25%;">Hambatan / Kendala</th>
                 </tr>
               </thead>
-              <tbody>
-                ${rowsHtml}
-              </tbody>
+              <tbody>${rowsHtml}</tbody>
             </table>
-
             ${pakaiFoto && lampiranHtml ? `
               <div class="page-break"></div>
               <h3 style="text-align: center; margin-bottom: 15px; border-bottom: 1px solid #ccc; padding-bottom: 5px; color: #0f172a;">LAMPIRAN DOKUMENTASI KEGIATAN</h3>
@@ -570,11 +621,8 @@ export default function RekapJurnalGrScreen() {
 
     } catch (error) {
       console.log('Error Cetak PDF:', error);
-      if (Platform.OS === 'web') {
-        window.alert('Gagal memproses file PDF.');
-      } else {
-        Alert.alert('Error', 'Gagal memproses file PDF.');
-      }
+      if (Platform.OS === 'web') window.alert('Gagal memproses file PDF.');
+      else Alert.alert('Error', 'Gagal memproses file PDF.');
     } finally {
       setGeneratingPdf(false);
     }
@@ -618,35 +666,20 @@ export default function RekapJurnalGrScreen() {
       <Modal visible={modalAbsenVisible} transparent animationType="fade">
         <View style={styles.modalBackground}>
           <View style={styles.modalContainer}>
-            
             <View style={styles.modalHeader}>
-              <TouchableOpacity 
-                style={styles.btnHeaderEdit}
-                onPress={() => setIsEditMode(!isEditMode)}
-              >
+              <TouchableOpacity style={styles.btnHeaderEdit} onPress={() => setIsEditMode(!isEditMode)}>
                 <Ionicons name={isEditMode ? "close-circle-outline" : "create-outline"} size={16} color="#2563EB" />
                 <Text style={styles.btnHeaderEditText}>{isEditMode ? "Batal" : "Edit"}</Text>
               </TouchableOpacity>
-
-              <Text style={styles.modalTitle}>
-                {isEditMode ? "Edit Absensi" : "Detail Absensi"}
-              </Text>
-
-              <TouchableOpacity 
-                style={styles.btnHeaderClose}
-                onPress={() => setModalAbsenVisible(false)}
-              >
+              <Text style={styles.modalTitle}>{isEditMode ? "Edit Absensi" : "Detail Absensi"}</Text>
+              <TouchableOpacity style={styles.btnHeaderClose} onPress={() => setModalAbsenVisible(false)}>
                 <Text style={styles.btnHeaderCloseText}>Tutup</Text>
               </TouchableOpacity>
             </View>
 
             <View style={styles.infoSiswaContainer}>
-              <Text style={styles.infoSiswaText}>
-                Kelas: <Text style={{fontWeight: 'bold'}}>{selectedAbsenKelas}</Text>
-              </Text>
-              <Text style={styles.infoSiswaText}>
-                Total Siswa: <Text style={{fontWeight: 'bold'}}>{totalSiswa}</Text>
-              </Text>
+              <Text style={styles.infoSiswaText}>Kelas: <Text style={{fontWeight: 'bold'}}>{selectedAbsenKelas}</Text></Text>
+              <Text style={styles.infoSiswaText}>Total Siswa: <Text style={{fontWeight: 'bold'}}>{totalSiswa}</Text></Text>
             </View>
 
             {summaryItems.length > 0 && (
@@ -654,16 +687,8 @@ export default function RekapJurnalGrScreen() {
                 {summaryItems.map((key) => {
                   const theme = getSummaryTheme(getInitialStatus(key));
                   return (
-                    <View 
-                      key={key} 
-                      style={[
-                        styles.summaryBadgeItem, 
-                        { backgroundColor: theme.bg, borderColor: theme.border }
-                      ]}
-                    >
-                      <Text style={[styles.summaryBadgeText, { color: theme.text }]}>
-                        {key}: {summary[key]}
-                      </Text>
+                    <View key={key} style={[styles.summaryBadgeItem, { backgroundColor: theme.bg, borderColor: theme.border }]}>
+                      <Text style={[styles.summaryBadgeText, { color: theme.text }]}>{key}: {summary[key]}</Text>
                     </View>
                   );
                 })}
@@ -683,26 +708,16 @@ export default function RekapJurnalGrScreen() {
                           return (
                             <TouchableOpacity
                               key={st.key}
-                              style={[
-                                styles.statusChip,
-                                { backgroundColor: isSelected ? st.bg : '#E2E8F0' }
-                              ]}
+                              style={[styles.statusChip, { backgroundColor: isSelected ? st.bg : '#E2E8F0' }]}
                               onPress={() => handleStatusChange(index, st.full)}
                             >
-                              <Text style={[
-                                styles.statusChipText,
-                                { color: isSelected ? '#FFF' : '#64748B' }
-                              ]}>
-                                {st.label}
-                              </Text>
+                              <Text style={[styles.statusChipText, { color: isSelected ? '#FFF' : '#64748B' }]}>{st.label}</Text>
                             </TouchableOpacity>
                           );
                         })}
                       </View>
                     ) : (
-                      <Text style={[styles.absenBadge, styles[`badge_${initStatus}`]]}>
-                        {siswa.status}
-                      </Text>
+                      <Text style={[styles.absenBadge, styles[`badge_${initStatus}`]]}>{siswa.status}</Text>
                     )}
                   </View>
                 );
@@ -711,11 +726,7 @@ export default function RekapJurnalGrScreen() {
 
             {isEditMode && (
               <View style={styles.modalFooter}>
-                <TouchableOpacity
-                  style={styles.btnSaveAbsen}
-                  onPress={handleSaveAbsen}
-                  disabled={savingAbsen}
-                >
+                <TouchableOpacity style={styles.btnSaveAbsen} onPress={handleSaveAbsen} disabled={savingAbsen}>
                   {savingAbsen ? (
                     <ActivityIndicator size="small" color="#FFF" />
                   ) : (
@@ -727,7 +738,6 @@ export default function RekapJurnalGrScreen() {
                 </TouchableOpacity>
               </View>
             )}
-
           </View>
         </View>
       </Modal>
@@ -778,13 +788,27 @@ export default function RekapJurnalGrScreen() {
                 </View>
 
                 <View style={styles.detailGroup}>
-                  <Text style={styles.detailLabel}>Bukti Dokumentasi</Text>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                    <Text style={styles.detailLabel}>Bukti Dokumentasi</Text>
+                    {getValidImageUri(selectedDetail.foto) && (
+                      <TouchableOpacity
+                        style={styles.btnDownloadFoto}
+                        onPress={() => handleDownloadFoto(selectedDetail.foto)}
+                        disabled={downloadingFoto}
+                      >
+                        {downloadingFoto ? (
+                          <ActivityIndicator size="small" color="#2563EB" />
+                        ) : (
+                          <>
+                            <Ionicons name="download-outline" size={14} color="#2563EB" />
+                            <Text style={styles.btnDownloadFotoText}>Unduh Foto</Text>
+                          </>
+                        )}
+                      </TouchableOpacity>
+                    )}
+                  </View>
                   {getValidImageUri(selectedDetail.foto) ? (
-                    <Image 
-                      source={{ uri: getValidImageUri(selectedDetail.foto) }} 
-                      style={styles.detailImage}
-                      resizeMode="contain" 
-                    />
+                    <Image source={{ uri: getValidImageUri(selectedDetail.foto) }} style={styles.detailImage} resizeMode="contain" />
                   ) : (
                     <Text style={styles.detailText}>Tidak ada dokumentasi / Format salah</Text>
                   )}
@@ -807,13 +831,9 @@ export default function RekapJurnalGrScreen() {
               <Ionicons name="close" size={24} color="#333" />
             </TouchableOpacity>
           </View>
-
           <View style={styles.modalContent}>
             <Text style={styles.labelField}>Jenis Periode:</Text>
-            <TouchableOpacity
-              style={styles.selectBox}
-              onPress={() => openSelectModal('JENIS_CETAK')}
-            >
+            <TouchableOpacity style={styles.selectBox} onPress={() => openSelectModal('JENIS_CETAK')}>
               <Text style={styles.selectBoxText}>{getJenisCetakLabel()}</Text>
               <Ionicons name="chevron-down" size={16} color="#64748B" />
             </TouchableOpacity>
@@ -821,10 +841,7 @@ export default function RekapJurnalGrScreen() {
             {jenisCetak === 'Bulanan' ? (
               <View style={{ marginTop: 10 }}>
                 <Text style={styles.labelField}>Pilih Bulan:</Text>
-                <TouchableOpacity
-                  style={styles.selectBox}
-                  onPress={() => openSelectModal('BULAN_CETAK')}
-                >
+                <TouchableOpacity style={styles.selectBox} onPress={() => openSelectModal('BULAN_CETAK')}>
                   <Text style={styles.selectBoxText}>{getBulanPilihanLabel()}</Text>
                   <Ionicons name="chevron-down" size={16} color="#64748B" />
                 </TouchableOpacity>
@@ -832,10 +849,7 @@ export default function RekapJurnalGrScreen() {
             ) : (
               <View style={{ marginTop: 10 }}>
                 <Text style={styles.labelField}>Pilih Semester:</Text>
-                <TouchableOpacity
-                  style={styles.selectBox}
-                  onPress={() => openSelectModal('SEMESTER_CETAK')}
-                >
+                <TouchableOpacity style={styles.selectBox} onPress={() => openSelectModal('SEMESTER_CETAK')}>
                   <Text style={styles.selectBoxText}>{getSemesterPilihanLabel()}</Text>
                   <Ionicons name="chevron-down" size={16} color="#64748B" />
                 </TouchableOpacity>
@@ -852,13 +866,8 @@ export default function RekapJurnalGrScreen() {
               />
             </View>
           </View>
-
           <View style={styles.modalFooter}>
-            <TouchableOpacity
-              style={styles.btnProcessPrint}
-              onPress={handleProsesCetakPdf}
-              disabled={generatingPdf}
-            >
+            <TouchableOpacity style={styles.btnProcessPrint} onPress={handleProsesCetakPdf} disabled={generatingPdf}>
               {generatingPdf ? (
                 <ActivityIndicator size="small" color="#FFF" />
               ) : (
@@ -869,7 +878,6 @@ export default function RekapJurnalGrScreen() {
               )}
             </TouchableOpacity>
           </View>
-
         </View>
       </View>
     </Modal>
@@ -910,11 +918,7 @@ export default function RekapJurnalGrScreen() {
 
     return (
       <Modal visible={selectModalVisible} transparent animationType="fade">
-        <TouchableOpacity
-          style={styles.modalOverlay}
-          activeOpacity={1}
-          onPress={() => setSelectModalVisible(false)}
-        >
+        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setSelectModalVisible(false)}>
           <View style={styles.selectModalContent}>
             <Text style={styles.selectModalTitle}>{title}</Text>
             <ScrollView style={{ maxHeight: 300 }}>
@@ -926,9 +930,7 @@ export default function RekapJurnalGrScreen() {
                     style={[styles.modalSelectItem, isSelected && styles.modalSelectItemActive]}
                     onPress={() => handleSelectOption(item.value)}
                   >
-                    <Text style={[styles.modalSelectText, isSelected && styles.modalSelectTextActive]}>
-                      {item.label}
-                    </Text>
+                    <Text style={[styles.modalSelectText, isSelected && styles.modalSelectTextActive]}>{item.label}</Text>
                     {isSelected && <Ionicons name="checkmark" size={18} color="#2563EB" />}
                   </TouchableOpacity>
                 );
@@ -943,45 +945,22 @@ export default function RekapJurnalGrScreen() {
   return (
     <View style={styles.container}>
       <View style={styles.filterSection}>
-        <View style={styles.headerRow}>
-          <Text style={styles.headerTitle}>Rekap Jurnal</Text>
-          <View style={{ flexDirection: 'row', gap: 8 }}>
-            <TouchableOpacity
-              style={styles.btnPrint}
-              onPress={() => setModalCetakVisible(true)}
-            >
-              <Ionicons name="print" size={16} color="#FFF" />
-              <Text style={styles.btnPrintText}>Cetak PDF</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.btnRefresh}
-              onPress={fetchDataJurnal}
-              disabled={loading}
-            >
-              <Ionicons name="refresh" size={16} color="#2563EB" />
-              <Text style={styles.btnRefreshText}>
-                {loading ? 'Memuat...' : 'Refresh'}
-              </Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-
-        <View style={styles.filterRow}>
+        <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
           <TextInput
-            style={styles.inputSearch}
+            style={[styles.inputSearch, { flex: 1.2 }]}
             placeholder="Cari Kelas..."
             value={searchKelas}
             onChangeText={setSearchKelas}
           />
-          <TouchableOpacity
-            style={styles.selectBoxFilter}
-            onPress={() => openSelectModal('STATUS_TINJAUAN')}
-          >
-            <Text style={styles.selectBoxText} numberOfLines={1}>
-              {getStatusTinjauanLabel()}
-            </Text>
+          <TouchableOpacity style={[styles.selectBoxFilter, { flex: 1.5 }]} onPress={() => openSelectModal('STATUS_TINJAUAN')}>
+            <Text style={styles.selectBoxText} numberOfLines={1}>{getStatusTinjauanLabel()}</Text>
             <Ionicons name="chevron-down" size={16} color="#64748B" />
+          </TouchableOpacity>
+          <TouchableOpacity style={[styles.btnPrint, { width: 45, height: 45, paddingHorizontal: 0, paddingVertical: 0, justifyContent: 'center' }]} onPress={() => setModalCetakVisible(true)}>
+            <Ionicons name="print" size={20} color="#FFF" />
+          </TouchableOpacity>
+          <TouchableOpacity style={[styles.btnRefresh, { width: 45, height: 45, paddingHorizontal: 0, paddingVertical: 0, justifyContent: 'center' }]} onPress={fetchDataJurnal} disabled={loading}>
+            {loading ? <ActivityIndicator size="small" color="#2563EB" /> : <Ionicons name="refresh" size={20} color="#2563EB" />}
           </TouchableOpacity>
         </View>
       </View>
@@ -1008,9 +987,7 @@ export default function RekapJurnalGrScreen() {
             ) : (
               filteredData.map((item, index) => (
                 <View key={item.id || index} style={styles.tableRow}>
-                  <View style={[styles.cell, { width: 120 }]}>
-                    <Text style={styles.cellText}>{item.waktu}</Text>
-                  </View>
+                  <View style={[styles.cell, { width: 120 }]}><Text style={styles.cellText}>{item.waktu}</Text></View>
                   <View style={[styles.cell, { width: 160 }]}>
                     <Text style={[styles.cellText, styles.boldText]}>{item.mapel}</Text>
                     <Text style={styles.subText}>{item.materi}</Text>
@@ -1034,27 +1011,15 @@ export default function RekapJurnalGrScreen() {
                     </TouchableOpacity>
                   </View>
                   <View style={[styles.cell, { width: 130 }]}>
-                    <Text style={[
-                      styles.statusBadge,
-                      item.statusTinjauan === 'Sudah' ? styles.bgSuccess : styles.bgWarning
-                    ]}>
+                    <Text style={[styles.statusBadge, item.statusTinjauan === 'Sudah' ? styles.bgSuccess : styles.bgWarning]}>
                       {item.statusTinjauan === 'Sudah' ? 'Ditinjau' : 'Belum Ditinjau'}
                     </Text>
                   </View>
                   <View style={[styles.cell, { width: 130, flexDirection: 'row', gap: 8 }]}>
-                    <TouchableOpacity
-                      style={[styles.btnAction, styles.btnView]}
-                      onPress={() => {
-                        setSelectedDetail(item);
-                        setModalDetailVisible(true);
-                      }}
-                    >
+                    <TouchableOpacity style={[styles.btnAction, styles.btnView]} onPress={() => { setSelectedDetail(item); setModalDetailVisible(true); }}>
                       <Ionicons name="eye" size={16} color="#FFF" />
                     </TouchableOpacity>
-                    <TouchableOpacity
-                      style={[styles.btnAction, styles.btnDelete]}
-                      onPress={() => handleDelete(item.id)}
-                    >
+                    <TouchableOpacity style={[styles.btnAction, styles.btnDelete]} onPress={() => handleDelete(item.id)}>
                       <Ionicons name="trash" size={16} color="#FFF" />
                     </TouchableOpacity>
                   </View>
@@ -1078,19 +1043,15 @@ const styles = StyleSheet.create({
   filterSection: { padding: 16, backgroundColor: '#FFF', borderBottomWidth: 1, borderColor: '#E2E8F0' },
   headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
   headerTitle: { fontSize: 18, fontWeight: 'bold', color: '#1E293B' },
-  
   btnPrint: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 6, paddingHorizontal: 12, backgroundColor: '#16A34A', borderRadius: 6 },
   btnPrintText: { fontSize: 12, color: '#FFF', fontWeight: 'bold' },
-
   btnRefresh: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 6, paddingHorizontal: 12, backgroundColor: '#EFF6FF', borderRadius: 6, borderWidth: 1, borderColor: '#BFDBFE' },
   btnRefreshText: { fontSize: 12, color: '#2563EB', fontWeight: 'bold' },
   filterRow: { flexDirection: 'row', gap: 10 },
   inputSearch: { flex: 1, borderWidth: 1, borderColor: '#CBD5E1', borderRadius: 8, paddingHorizontal: 12, height: 45, backgroundColor: '#F1F5F9' },
   selectBoxFilter: { flex: 1.2, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderWidth: 1, borderColor: '#CBD5E1', borderRadius: 8, height: 45, paddingHorizontal: 12, backgroundColor: '#F1F5F9' },
-
   selectBox: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderWidth: 1, borderColor: '#CBD5E1', borderRadius: 8, height: 42, paddingHorizontal: 12, backgroundColor: '#F8FAFC', marginTop: 4 },
   selectBoxText: { fontSize: 13, color: '#334155', fontWeight: '500', flex: 1 },
-
   tableWrapper: { flex: 1, margin: 10, backgroundColor: '#FFF', borderRadius: 8, borderWidth: 1, borderColor: '#E2E8F0' },
   tableRow: { flexDirection: 'row', borderBottomWidth: 1, borderColor: '#E2E8F0', paddingVertical: 10, paddingHorizontal: 8 },
   tableHeader: { backgroundColor: '#F1F5F9', borderTopLeftRadius: 8, borderTopRightRadius: 8 },
@@ -1102,7 +1063,6 @@ const styles = StyleSheet.create({
   emptyData: { textAlign: 'center', padding: 20, color: '#94A3B8' },
   loadingBox: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', padding: 24, gap: 10 },
   loadingText: { fontSize: 13, color: '#64748B', fontWeight: '500' },
-
   btnOutline: { borderWidth: 1, borderColor: '#2563EB', paddingVertical: 4, paddingHorizontal: 8, borderRadius: 6, alignItems: 'center' },
   btnOutlineText: { fontSize: 11, color: '#2563EB', fontWeight: 'bold' },
   btnAction: { padding: 8, borderRadius: 6, justifyContent: 'center', alignItems: 'center' },
@@ -1111,7 +1071,6 @@ const styles = StyleSheet.create({
   statusBadge: { fontSize: 11, fontWeight: 'bold', color: '#FFF', paddingVertical: 4, paddingHorizontal: 8, borderRadius: 12, textAlign: 'center', overflow: 'hidden' },
   bgSuccess: { backgroundColor: '#16A34A' },
   bgWarning: { backgroundColor: '#F59E0B' },
-
   modalBackground: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' },
   modalContainer: { width: '90%', maxHeight: '80%', backgroundColor: '#FFF', borderRadius: 12, overflow: 'hidden' },
   modalCetakWidth: { width: Platform.OS === 'web' ? '400px' : '85%' },
@@ -1121,27 +1080,21 @@ const styles = StyleSheet.create({
   btnHeaderEditText: { fontSize: 12, color: '#2563EB', fontWeight: 'bold' },
   btnHeaderClose: { paddingVertical: 4, paddingHorizontal: 10, backgroundColor: '#F1F5F9', borderRadius: 6, borderWidth: 1, borderColor: '#CBD5E1' },
   btnHeaderCloseText: { fontSize: 12, color: '#475569', fontWeight: 'bold' },
-
   modalContent: { padding: 16 },
-
   absenRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 8, borderBottomWidth: 1, borderColor: '#F1F5F9' },
   absenName: { fontSize: 14, color: '#334155', flex: 1 },
-
   absenBadge: { fontSize: 12, fontWeight: 'bold', color: '#FFF', width: 65, textAlign: 'center', borderRadius: 4, overflow: 'hidden', paddingVertical: 4 },
   statusChipGroup: { flexDirection: 'row', gap: 4 },
   statusChip: { width: 28, height: 28, borderRadius: 6, justifyContent: 'center', alignItems: 'center' },
   statusChipText: { fontSize: 12, fontWeight: 'bold' },
-
   badge_H: { backgroundColor: '#16A34A' }, 
   badge_S: { backgroundColor: '#EAB308' }, 
   badge_I: { backgroundColor: '#2563EB' }, 
   badge_A: { backgroundColor: '#DC2626' }, 
   badge_B: { backgroundColor: '#6B7280' },
-
   modalFooter: { padding: 12, borderTopWidth: 1, borderColor: '#E2E8F0', backgroundColor: '#FFF' },
   btnSaveAbsen: { backgroundColor: '#2563EB', paddingVertical: 10, borderRadius: 8, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 8 },
   btnSaveAbsenText: { color: '#FFF', fontWeight: 'bold', fontSize: 14 },
-
   detailGroup: { marginBottom: 16 },
   detailLabel: { fontSize: 12, color: '#64748B', marginBottom: 4, fontWeight: 'bold' },
   detailText: { fontSize: 14, color: '#1E3A8A', lineHeight: 22 },
@@ -1149,91 +1102,22 @@ const styles = StyleSheet.create({
   kepsekBox: { backgroundColor: '#EFF6FF', padding: 12, borderRadius: 8, borderWidth: 1, borderColor: '#BFDBFE' },
   catatanText: { fontSize: 14, color: '#1E3A8A', fontStyle: 'italic' },
   belumTinjauText: { fontSize: 14, color: '#94A3B8', fontStyle: 'italic' },
-
-  summaryContainer: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    paddingVertical: 12,
-    paddingHorizontal: 8,
-    backgroundColor: '#F8FAFC',
-    borderBottomWidth: 1,
-    borderColor: '#E2E8F0',
-    justifyContent: 'center',
-    gap: 8,
-  },
-  summaryBadgeItem: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
-    borderWidth: 1,
-  },
-  summaryBadgeText: {
-    fontSize: 12,
-    fontWeight: 'bold',
-  },
-  infoSiswaContainer: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    gap: 16,
-    paddingVertical: 8,
-    backgroundColor: '#F1F5F9',
-    borderBottomWidth: 1,
-    borderColor: '#E2E8F0',
-  },
-  infoSiswaText: {
-    fontSize: 13,
-    color: '#475569',
-  },
-
+  btnDownloadFoto: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 4, paddingHorizontal: 10, backgroundColor: '#EFF6FF', borderRadius: 6, borderWidth: 1, borderColor: '#BFDBFE' },
+  btnDownloadFotoText: { fontSize: 12, color: '#2563EB', fontWeight: 'bold' },
+  summaryContainer: { flexDirection: 'row', flexWrap: 'wrap', paddingVertical: 12, paddingHorizontal: 8, backgroundColor: '#F8FAFC', borderBottomWidth: 1, borderColor: '#E2E8F0', justifyContent: 'center', gap: 8 },
+  summaryBadgeItem: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, borderWidth: 1 },
+  summaryBadgeText: { fontSize: 12, fontWeight: 'bold' },
+  infoSiswaContainer: { flexDirection: 'row', justifyContent: 'center', gap: 16, paddingVertical: 8, backgroundColor: '#F1F5F9', borderBottomWidth: 1, borderColor: '#E2E8F0' },
+  infoSiswaText: { fontSize: 13, color: '#475569' },
   labelField: { fontSize: 13, fontWeight: 'bold', color: '#334155', marginBottom: 2 },
   switchRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 16 },
   btnProcessPrint: { backgroundColor: '#16A34A', paddingVertical: 10, borderRadius: 8, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 8 },
   btnProcessPrintText: { color: '#FFF', fontWeight: 'bold', fontSize: 14 },
-
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(15, 23, 42, 0.4)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 24,
-  },
-  selectModalContent: {
-    width: Platform.OS === 'web' ? '360px' : '100%',
-    backgroundColor: '#FFF',
-    borderRadius: 12,
-    padding: 16,
-    elevation: 5,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 4,
-  },
-  selectModalTitle: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#1E293B',
-    marginBottom: 12,
-    textAlign: 'center',
-  },
-  modalSelectItem: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F1F5F9',
-  },
-  modalSelectItemActive: {
-    backgroundColor: '#EFF6FF',
-    borderRadius: 6,
-  },
-  modalSelectText: {
-    fontSize: 14,
-    color: '#334155',
-  },
-  modalSelectTextActive: {
-    fontWeight: 'bold',
-    color: '#2563EB',
-  },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(15, 23, 42, 0.4)', justifyContent: 'center', alignItems: 'center', padding: 24 },
+  selectModalContent: { width: Platform.OS === 'web' ? '360px' : '100%', backgroundColor: '#FFF', borderRadius: 12, padding: 16, elevation: 5, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.25, shadowRadius: 4 },
+  selectModalTitle: { fontSize: 16, fontWeight: 'bold', color: '#1E293B', marginBottom: 12, textAlign: 'center' },
+  modalSelectItem: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 12, paddingHorizontal: 8, borderBottomWidth: 1, borderBottomColor: '#F1F5F9' },
+  modalSelectItemActive: { backgroundColor: '#EFF6FF', borderRadius: 6 },
+  modalSelectText: { fontSize: 14, color: '#334155' },
+  modalSelectTextActive: { fontWeight: 'bold', color: '#2563EB' },
 });
