@@ -15,13 +15,13 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Print from 'expo-print';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import { callBackendAPI } from '../api/client';
 import { AuthContext } from '../context/AuthContext';
 
 let MediaLibrary = null;
 try {
-  MediaLibrary = require('expo-media-library');
+  MediaLibrary = require('expo-media-library/legacy');
 } catch (e) {
   console.log('MediaLibrary native module belum terpasang/ter-link:', e);
 }
@@ -102,7 +102,7 @@ const convertUriToBase64 = async (uri) => {
         });
       } catch (err) {
         console.log('Gagal konversi gambar web (CORS / Network Limit):', err);
-        return null; // Kembalikan null jika terhalang CORS
+        return null;
       }
     } 
     
@@ -332,101 +332,96 @@ export default function RekapJurnalGrScreen() {
   };
 
   const handleDownloadFoto = async (fotoUri) => {
-  if (!fotoUri) return;
-  setDownloadingFoto(true);
+    if (!fotoUri) return;
+    setDownloadingFoto(true);
 
-  try {
-    const fileName = `dokumentasi_${selectedDetail?.id || Date.now()}.jpg`;
+    try {
+      const fileName = `dokumentasi_${selectedDetail?.id || Date.now()}.jpg`;
 
-    // --- LOGIK KHUSUS WEB / PWA ---
-    if (Platform.OS === 'web') {
-      let downloadUrl = fotoUri.trim();
+      // --- LOGIK KHUSUS WEB / PWA ---
+      if (Platform.OS === 'web') {
+        let downloadUrl = fotoUri.trim();
 
-      // Jika URL berupa HTTP/HTTPS, lakukan konversi Base64 / Blob terlebih dahulu
-      if (downloadUrl.startsWith('http://') || downloadUrl.startsWith('https://')) {
-        const base64Data = await convertUriToBase64(downloadUrl);
-        if (base64Data && base64Data.startsWith('data:image')) {
-          downloadUrl = base64Data;
-        } else {
-          // Fallback PWA jika server foto memblokir CORS:
-          // Buka foto di tab baru agar pengguna dapat menekan/klik kanan "Simpan Gambar"
-          window.open(fotoUri, '_blank');
-          setDownloadingFoto(false);
-          return;
+        if (downloadUrl.startsWith('http://') || downloadUrl.startsWith('https://')) {
+          const base64Data = await convertUriToBase64(downloadUrl);
+          if (base64Data && base64Data.startsWith('data:image')) {
+            downloadUrl = base64Data;
+          } else {
+            window.open(fotoUri, '_blank');
+            setDownloadingFoto(false);
+            return;
+          }
+        }
+
+        const link = document.createElement('a');
+        link.href = downloadUrl;
+        link.download = fileName;
+        link.target = '_blank';
+        document.body.appendChild(link);
+        link.click();
+        
+        setTimeout(() => {
+          document.body.removeChild(link);
+        }, 100);
+
+        setDownloadingFoto(false);
+        return;
+      }
+
+      // --- LOGIK NATIVE MOBILE (ANDROID / IOS) ---
+      if (!MediaLibrary || !MediaLibrary.requestPermissionsAsync) {
+        Alert.alert('Modul Native Belum Siap', 'Silakan jalankan "npx expo run:android" pada terminal.');
+        setDownloadingFoto(false);
+        return;
+      }
+
+      const { status } = await MediaLibrary.requestPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Izin Ditolak', 'Aplikasi membutuhkan izin akses galeri untuk menyimpan foto.');
+        setDownloadingFoto(false);
+        return;
+      }
+
+      let targetUrl = fotoUri.trim();
+      if (targetUrl.includes('drive.google.com')) {
+        const match = targetUrl.match(/[-\w]{25,}/);
+        if (match) {
+          targetUrl = `https://lh3.googleusercontent.com/d/${match[0]}`;
         }
       }
 
-      // Eksekusi elemen 'a' unduhan di DOM Browser
-      const link = document.createElement('a');
-      link.href = downloadUrl;
-      link.download = fileName;
-      link.target = '_blank';
-      document.body.appendChild(link);
-      link.click();
-      
-      // Cleanup DOM
-      setTimeout(() => {
-        document.body.removeChild(link);
-      }, 100);
+      const tempFileUri = `${FileSystem.cacheDirectory}${fileName}`;
 
-      setDownloadingFoto(false);
-      return;
-    }
-
-    // --- LOGIK NATIVE MOBILE (ANDROID / IOS) ---
-    if (!MediaLibrary || !MediaLibrary.requestPermissionsAsync) {
-      Alert.alert('Modul Native Belum Siap', 'Silakan jalankan "npx expo run:android" pada terminal.');
-      setDownloadingFoto(false);
-      return;
-    }
-
-    const { status } = await MediaLibrary.requestPermissionsAsync();
-    if (status !== 'granted') {
-      Alert.alert('Izin Ditolak', 'Aplikasi membutuhkan izin akses galeri untuk menyimpan foto.');
-      setDownloadingFoto(false);
-      return;
-    }
-
-    let targetUrl = fotoUri.trim();
-    if (targetUrl.includes('drive.google.com')) {
-      const match = targetUrl.match(/[-\w]{25,}/);
-      if (match) {
-        targetUrl = `https://lh3.googleusercontent.com/d/${match[0]}`;
+      if (targetUrl.startsWith('http://') || targetUrl.startsWith('https://')) {
+        const downloadResult = await FileSystem.downloadAsync(targetUrl, tempFileUri);
+        if (downloadResult.status !== 200) {
+          throw new Error(`Gagal mengunduh file dari server (HTTP Status: ${downloadResult.status}).`);
+        }
+      } else if (targetUrl.startsWith('data:image')) {
+        const pureBase64 = targetUrl.split(',')[1];
+        await FileSystem.writeAsStringAsync(tempFileUri, pureBase64, { encoding: FileSystem.EncodingType.Base64 });
+      } else if (targetUrl.startsWith('file://') || targetUrl.startsWith('content://')) {
+        await FileSystem.copyAsync({ from: targetUrl, to: tempFileUri });
+      } else {
+        const pureBase64 = targetUrl.includes(',') ? targetUrl.split(',')[1] : targetUrl;
+        await FileSystem.writeAsStringAsync(tempFileUri, pureBase64, { encoding: FileSystem.EncodingType.Base64 });
       }
-    }
 
-    const tempFileUri = `${FileSystem.cacheDirectory}${fileName}`;
+      await MediaLibrary.createAssetAsync(tempFileUri);
+      await FileSystem.deleteAsync(tempFileUri, { idempotent: true });
 
-    if (targetUrl.startsWith('http://') || targetUrl.startsWith('https://')) {
-      const downloadResult = await FileSystem.downloadAsync(targetUrl, tempFileUri);
-      if (downloadResult.status !== 200) {
-        throw new Error(`Gagal mengunduh file dari server (HTTP Status: ${downloadResult.status}).`);
+      Alert.alert('Berhasil', 'Foto dokumentasi telah berhasil disimpan ke Galeri HP!');
+    } catch (error) {
+      console.log('Error detail simpan ke galeri:', error);
+      if (Platform.OS === 'web') {
+        window.open(fotoUri, '_blank');
+      } else {
+        Alert.alert('Gagal', error?.message || 'Gagal menyimpan foto.');
       }
-    } else if (targetUrl.startsWith('data:image')) {
-      const pureBase64 = targetUrl.split(',')[1];
-      await FileSystem.writeAsStringAsync(tempFileUri, pureBase64, { encoding: FileSystem.EncodingType.Base64 });
-    } else if (targetUrl.startsWith('file://') || targetUrl.startsWith('content://')) {
-      await FileSystem.copyAsync({ from: targetUrl, to: tempFileUri });
-    } else {
-      const pureBase64 = targetUrl.includes(',') ? targetUrl.split(',')[1] : targetUrl;
-      await FileSystem.writeAsStringAsync(tempFileUri, pureBase64, { encoding: FileSystem.EncodingType.Base64 });
+    } finally {
+      setDownloadingFoto(false);
     }
-
-    await MediaLibrary.createAssetAsync(tempFileUri);
-    await FileSystem.deleteAsync(tempFileUri, { idempotent: true });
-
-    Alert.alert('Berhasil', 'Foto dokumentasi telah berhasil disimpan ke Galeri HP!');
-  } catch (error) {
-    console.log('Error detail simpan ke galeri:', error);
-    if (Platform.OS === 'web') {
-      window.open(fotoUri, '_blank');
-    } else {
-      Alert.alert('Gagal', error?.message || 'Gagal menyimpan foto.');
-    }
-  } finally {
-    setDownloadingFoto(false);
-  }
-};
+  };
 
   const openSelectModal = (type) => {
     setSelectModalType(type);
